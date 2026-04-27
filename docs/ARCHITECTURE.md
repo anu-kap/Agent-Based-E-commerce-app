@@ -34,7 +34,16 @@ flowchart LR
 | `campus_radar` | Mash up campus events + weather + recent intent + Shopify products into merchant actions; trigger the Kestra radar workflow | `campus_demand_radar` |
 | `compose_reply` | Format the user-facing reply text from the accumulated state | — |
 
-If `langgraph` is installed, the graph runs as a real `StateGraph`. If not, the agent runs the same nodes in the same order through a deterministic fallback (`run_fallback_graph`), so the demo always boots.
+### LangGraph vs. fallback
+
+The graph runs as a real LangGraph `StateGraph` whenever the `langgraph` package is importable. That happens automatically:
+
+- **In the Docker image** (used on Render): `Dockerfile` runs `pip install -r agent/requirements.txt` into a `/opt/venv`, and the deployed app's spawn picks up that interpreter via `PATH`.
+- **Locally**: if `.venv/bin/python3` exists in the project root, `server.js` prefers it for the spawn. Create the venv once with `python3 -m venv .venv && .venv/bin/pip install -r agent/requirements.txt`. Otherwise the system `python3` is used and (without `langgraph` installed there) the deterministic fallback runs.
+
+The fallback is not a degraded mode. It executes the same nodes in the same order with the same MCP calls — only the orchestration library differs. You'd notice the difference if we added LangGraph-specific features (streaming intermediate state, conditional cycles, checkpointed pauses, human-in-the-loop interrupts), none of which the current intent → tool → reply flow needs. The fallback exists to keep optional deps optional, not because we're hiding a degraded code path.
+
+You can tell which path ran from the trace: a real LangGraph turn starts with `langgraph.StateGraph`; the fallback starts with `langgraph.fallback`.
 
 Before each turn, `commerce_agent.main()` writes the message to `chat_intents` (when `DATABASE_URL` is set) and reads the most recent 15 intents back — that's how the radar gets real cross-session history.
 

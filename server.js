@@ -11,6 +11,12 @@ const port = Number(process.env.PORT || 3000);
 const sessions = new Map();
 const intentLog = [];
 
+// Prefer the project venv if it exists (so local dev uses the same
+// Python that has langgraph installed). Falls back to whatever
+// `python3` resolves to on PATH (Docker/Render uses /opt/venv via PATH).
+const venvPython = join(rootDir, ".venv", "bin", "python3");
+const pythonBin = existsSync(venvPython) ? venvPython : "python3";
+
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -42,7 +48,7 @@ function readJson(req) {
 
 function runAgent(payload) {
   return new Promise((resolve, reject) => {
-    const agent = spawn("python3", ["agent/commerce_agent.py"], {
+    const agent = spawn(pythonBin, ["agent/commerce_agent.py"], {
       cwd: rootDir,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, PYTHONUNBUFFERED: "1" }

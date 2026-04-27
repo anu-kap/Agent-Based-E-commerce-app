@@ -54,6 +54,11 @@ For a deeper walkthrough — sequence diagrams of the four user flows (search, c
 ## Quick start
 
 ```bash
+# (One-time) install Python deps so local dev runs the real LangGraph
+# state machine. The Docker image installs these automatically; this
+# is for local dev only. server.js auto-prefers .venv/bin/python3.
+python3 -m venv .venv && .venv/bin/pip install -r agent/requirements.txt
+
 # 1. Seed-catalog mode (no external services, no DB)
 npm start
 # → http://localhost:3000
