@@ -1,0 +1,62 @@
+[
+  {
+    "sku": "RUN-TRAIL-01",
+    "name": "Northline Waterproof Trail Shoe",
+    "category": "shoes",
+    "price": 139,
+    "inventory": 18,
+    "rating": 4.7,
+    "tags": ["trail", "waterproof", "running", "rain"],
+    "description": "Grippy trail shoe with sealed upper and rock plate."
+  },
+  {
+    "sku": "RUN-ROAD-02",
+    "name": "AeroKnit Road Runner",
+    "category": "shoes",
+    "price": 118,
+    "inventory": 31,
+    "rating": 4.5,
+    "tags": ["road", "running", "lightweight"],
+    "description": "Breathable daily trainer for pavement miles."
+  },
+  {
+    "sku": "HIKE-BOOT-03",
+    "name": "RidgeLock Hiking Boot",
+    "category": "boots",
+    "price": 172,
+    "inventory": 12,
+    "rating": 4.8,
+    "tags": ["hiking", "waterproof", "ankle-support"],
+    "description": "Supportive boot for wet and rocky hikes."
+  },
+  {
+    "sku": "PACK-DAY-04",
+    "name": "Transit 22L Daypack",
+    "category": "bags",
+    "price": 86,
+    "inventory": 24,
+    "rating": 4.4,
+    "tags": ["commute", "travel", "laptop"],
+    "description": "Structured daypack with laptop sleeve and bottle pockets."
+  },
+  {
+    "sku": "JKT-RAIN-05",
+    "name": "Cloudbreak Rain Shell",
+    "category": "jackets",
+    "price": 128,
+    "inventory": 20,
+    "rating": 4.6,
+    "tags": ["rain", "waterproof", "lightweight"],
+    "description": "Packable shell with taped seams and adjustable hood."
+  },
+  {
+    "sku": "SOCK-MER-06",
+    "name": "Merino Trail Socks",
+    "category": "socks",
+    "price": 22,
+    "inventory": 80,
+    "rating": 4.9,
+    "tags": ["trail", "running", "merino"],
+    "description": "Cushioned socks that manage moisture on long runs."
+  }
+]

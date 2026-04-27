@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic Commerce Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace" aria-label="Agentic commerce workspace">
+        <aside class="rail" aria-label="System status">
+          <div>
+            <p class="eyebrow">Commerce Copilot</p>
+            <h1>Shop, compare, and checkout from chat.</h1>
+          </div>
+          <div class="stack">
+            <div class="status">
+              <span class="dot"></span>
+              <span>LangGraph orchestration path ready</span>
+            </div>
+            <div class="status">
+              <span class="dot"></span>
+              <span>MCP catalog, cart, order tools</span>
+            </div>
+            <div class="status">
+              <span class="dot muted"></span>
+              <span>Postgres + Kestra ready via Docker</span>
+            </div>
+          </div>
+          <div class="metrics">
+            <div><strong>12</strong><span>SKUs</span></div>
+            <div><strong>4</strong><span>Agent nodes</span></div>
+            <div><strong>3</strong><span>MCP tools</span></div>
+          </div>
+        </aside>
+
+        <section class="chat-panel">
+          <header class="chat-header">
+            <div>
+              <p class="eyebrow">Live Demo</p>
+              <h2>Agentic shopping session</h2>
+            </div>
+            <button id="reset" type="button" title="Reset conversation">Reset</button>
+          </header>
+
+          <div id="messages" class="messages" aria-live="polite"></div>
+
+          <form id="chat-form" class="composer">
+            <input
+              id="message"
+              name="message"
+              type="text"
+              autocomplete="off"
+              placeholder="Ask for products, compare options, or checkout..."
+              required
+            />
+            <button type="submit">Send</button>
+          </form>
+
+          <div class="suggestions" aria-label="Example prompts">
+            <button type="button">Find waterproof trail shoes under $150</button>
+            <button type="button">Add the best option to my cart</button>
+            <button type="button">Checkout with standard shipping</button>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
