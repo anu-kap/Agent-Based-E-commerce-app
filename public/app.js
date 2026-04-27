@@ -211,6 +211,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can guide Shopify shoppers to the right product, build a real Shopify cart, and then simulate post-order automation for the merchant. Try asking for a t-shirt, mug, business card, or backpack.",
+  "Hi, I can guide campus-store shoppers to the right spirit gear, build a real Shopify cart, and then simulate post-order automation for the merchant. Try asking for a hoodie, alumni gift, hat, or mug.",
   ["agent.ready", "mcp.tools.loaded"]
 );

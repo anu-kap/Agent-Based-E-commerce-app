@@ -50,13 +50,13 @@ If Kestra is not running or the flow has not been imported yet, the chat still c
 Set a Shopify store domain to use Shopify's real Storefront MCP endpoint instead of the local demo catalog:
 
 ```bash
-SHOPIFY_STORE_DOMAIN=your-store.myshopify.com npm start
+SHOPIFY_STORE_DOMAIN=thekohawkshop.com npm start
 ```
 
 The MCP endpoint is:
 
 ```text
-https://your-store.myshopify.com/api/mcp
+https://thekohawkshop.com/api/mcp
 ```
 
 The agent calls Shopify's Storefront MCP tools for product search and cart updates, then sends the buyer to Shopify checkout. The "Simulate order paid" action represents a Shopify webhook and triggers Kestra post-order automation. Some Shopify stores restrict MCP access, so test against the specific store you plan to demo.
