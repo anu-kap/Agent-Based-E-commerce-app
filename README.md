@@ -33,6 +33,8 @@ flowchart LR
 **Catalog source-of-truth chain** (when `SHOPIFY_STORE_DOMAIN` is set):
 fresh Postgres cache (1h TTL) → Shopify Storefront MCP → stale Postgres cache → seed catalog. Postgres and Kestra are both optional; the app works with neither.
 
+For a deeper walkthrough — sequence diagrams of the four user flows (search, cart, checkout, radar), the LangGraph node map, MCP tool contracts, and the design decisions behind the cache and fallback chain — see [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
+
 ## What's real vs. what's mocked
 
 | Capability | Status | Notes |
