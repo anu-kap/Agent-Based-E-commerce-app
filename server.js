@@ -104,7 +104,8 @@ const server = createServer(async (req, res) => {
       sessions.set(sessionId, {
         products: result.products || session.products || [],
         cart: result.cart || session.cart || [],
-        order: result.order || session.order || {}
+        order: result.order || session.order || {},
+        automation: result.automation || session.automation || {}
       });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(result));

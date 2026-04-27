@@ -83,13 +83,56 @@ function addCheckoutLink(container, order = {}) {
   const checkoutUrl = order.quote?.checkoutUrl;
   if (!checkoutUrl) return;
 
+  const actions = document.createElement("div");
+  actions.className = "post-cart-actions";
+
   const link = document.createElement("a");
   link.className = "checkout-link";
   link.href = checkoutUrl;
   link.target = "_blank";
   link.rel = "noreferrer";
   link.textContent = "Open Shopify checkout";
-  container.append(link);
+  actions.append(link);
+
+  const simulate = document.createElement("button");
+  simulate.type = "button";
+  simulate.className = "simulate-order";
+  simulate.textContent = "Simulate order paid";
+  simulate.title = "Trigger Kestra post-order automation";
+  simulate.addEventListener("click", () => {
+    sendMessage("Simulate Shopify order paid webhook");
+  });
+  actions.append(simulate);
+
+  container.append(actions);
+}
+
+function addAutomationStatus(container, automation = {}) {
+  if (!automation.kestra) return;
+
+  const panel = document.createElement("div");
+  panel.className = "automation-status";
+
+  const title = document.createElement("strong");
+  title.textContent = automation.kestra.status === "triggered" ? "Kestra workflow started" : "Kestra workflow ready";
+  panel.append(title);
+
+  const detail = document.createElement("span");
+  detail.textContent = automation.kestra.executionId
+    ? `Execution ${automation.kestra.executionId}`
+    : "Start Kestra locally to execute this workflow.";
+  panel.append(detail);
+
+  if (automation.kestra.url) {
+    const link = document.createElement("a");
+    link.href = automation.kestra.url;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = "Open Kestra";
+    panel.append(link);
+  }
+
+  container.append(panel);
 }
 
 function addMessage(role, text, trace = [], meta = {}) {
@@ -101,7 +144,10 @@ function addMessage(role, text, trace = [], meta = {}) {
     if ((meta.trace || []).includes("mcp.search_catalog")) {
       addProductCards(bubble, meta.products || []);
     }
-    addCheckoutLink(bubble, meta.order || {});
+    if (!(meta.trace || []).includes("kestra.post_order_workflow")) {
+      addCheckoutLink(bubble, meta.order || {});
+    }
+    addAutomationStatus(bubble, meta.automation || {});
   }
 
   if (trace.length) {
@@ -165,6 +211,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can search the catalog, compare options, manage a cart, and simulate checkout. Try asking for a t-shirt, mug, business card, or backpack.",
+  "Hi, I can guide Shopify shoppers to the right product, build a real Shopify cart, and then simulate post-order automation for the merchant. Try asking for a t-shirt, mug, business card, or backpack.",
   ["agent.ready", "mcp.tools.loaded"]
 );

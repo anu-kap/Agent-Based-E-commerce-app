@@ -259,7 +259,9 @@ h2 {
 
 .product-actions button,
 .product-actions a,
-.checkout-link {
+.checkout-link,
+.simulate-order,
+.automation-status a {
   min-height: 36px;
   display: inline-flex;
   align-items: center;
@@ -282,13 +284,52 @@ h2 {
   color: var(--accent-strong);
 }
 
-.checkout-link {
-  width: fit-content;
+.post-cart-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 12px;
+  white-space: normal;
+}
+
+.checkout-link,
+.simulate-order {
   background: var(--accent);
   color: #fff;
   font-weight: 800;
   white-space: normal;
+}
+
+.simulate-order {
+  background: #fff;
+  color: var(--accent-strong);
+}
+
+.automation-status {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #cfe0d5;
+  border-radius: 8px;
+  background: #f2faf5;
+  white-space: normal;
+}
+
+.automation-status strong {
+  color: var(--success);
+}
+
+.automation-status span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.automation-status a {
+  width: fit-content;
+  color: var(--success);
+  border-color: #b8d7c5;
+  background: #fff;
 }
 
 .trace {

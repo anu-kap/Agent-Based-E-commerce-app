@@ -230,11 +230,13 @@ def cart_quote(items):
     }
 
 
-def trigger_kestra(order_id, total, shipping_method):
+def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url=""):
     data = urlencode({
         "orderId": order_id,
         "total": str(total),
-        "shippingMethod": shipping_method
+        "workflowEvent": workflow_event,
+        "cartId": cart_id,
+        "checkoutUrl": checkout_url
     }).encode("utf-8")
     request = Request(
         f"{KESTRA_URL}/api/v1/main/executions/{KESTRA_NAMESPACE}/{KESTRA_FLOW_ID}",
@@ -248,10 +250,11 @@ def trigger_kestra(order_id, total, shipping_method):
             return {
                 "status": "triggered",
                 "executionId": payload.get("id"),
-                "url": f"{KESTRA_URL}/ui/executions/{payload.get('id')}" if payload.get("id") else KESTRA_URL
+                "url": f"{KESTRA_URL}/ui/executions/{payload.get('id')}" if payload.get("id") else KESTRA_URL,
+                "workflowEvent": workflow_event
             }
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-        return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL}
+        return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL, "workflowEvent": workflow_event}
 
 
 def create_order(items, shipping_method="standard"):
@@ -263,8 +266,29 @@ def create_order(items, shipping_method="standard"):
         "status": "created",
         "shippingMethod": shipping_method,
         "quote": quote,
+        "kestraWorkflow": KESTRA_FLOW_ID
+    }
+
+
+def post_order_automation(order=None, cart=None, session_id="demo"):
+    order = order or {}
+    quote = order.get("quote", {})
+    shopify_cart = quote.get("cart", {}) if isinstance(quote, dict) else {}
+    total = quote.get("total", 0) if isinstance(quote, dict) else 0
+    cart_id = shopify_cart.get("id") if isinstance(shopify_cart, dict) else ""
+    checkout_url = quote.get("checkoutUrl", "") if isinstance(quote, dict) else ""
+    order_id = order.get("orderId") or f"SHOPIFY-PAID-{uuid.uuid4().hex[:8].upper()}"
+
+    return {
+        "orderId": order_id,
+        "status": "paid",
+        "source": "shopify_webhook_simulation",
+        "sessionId": session_id,
+        "total": total,
+        "cartId": cart_id,
+        "checkoutUrl": checkout_url,
         "kestraWorkflow": KESTRA_FLOW_ID,
-        "kestra": trigger_kestra(order_id, total, shipping_method)
+        "kestra": trigger_kestra(order_id, total, "shopify.orders.paid", cart_id, checkout_url)
     }
 
 
@@ -293,7 +317,7 @@ TOOLS = {
         "handler": cart_quote
     },
     "create_order": {
-        "description": "Create a demo order and return the Kestra fulfillment workflow hook.",
+        "description": "Create a local demo order. Shopify checkout should use Shopify instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -303,6 +327,18 @@ TOOLS = {
             "required": ["items"]
         },
         "handler": create_order
+    },
+    "post_order_automation": {
+        "description": "Simulate a Shopify order-paid webhook and trigger Kestra post-order automation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "order": {"type": "object"},
+                "cart": {"type": "array"},
+                "session_id": {"type": "string"}
+            }
+        },
+        "handler": post_order_automation
     }
 }
 

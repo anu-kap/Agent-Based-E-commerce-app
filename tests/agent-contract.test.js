@@ -28,10 +28,11 @@ test("agent searches catalog through MCP tools", async () => {
   assert.ok(result.trace.some((item) => item.includes("search_catalog")));
 });
 
-test("agent prepares checkout order", async () => {
+test("local checkout path does not trigger Kestra", async () => {
   const result = await runAgent("Checkout with standard shipping");
   assert.match(result.reply, /ORD-DEMO-1001/);
-  assert.ok(result.trace.includes("kestra.workflow.prepared"));
+  assert.ok(result.trace.includes("local.demo_order_created"));
+  assert.equal(result.automation.kestra, undefined);
 });
 
 test("agent can add the best prior search result to cart", async () => {
@@ -50,4 +51,16 @@ test("agent can add a selected product from prior results", async () => {
   });
   assert.match(cart.reply, /I added Cloudbreak Rain Shell to the cart/);
   assert.equal(cart.cart[0].sku, "JKT-RAIN-05");
+});
+
+test("post-order path triggers Kestra automation hook", async () => {
+  const search = await runAgent("Find waterproof trail shoes under $150");
+  const cart = await runAgent("Add the best option to my cart", { products: search.products });
+  const automation = await runAgent("Simulate Shopify order paid webhook", {
+    cart: cart.cart,
+    order: cart.order
+  });
+  assert.match(automation.reply, /Simulated Shopify paid order/);
+  assert.ok(automation.trace.includes("kestra.post_order_workflow"));
+  assert.equal(automation.automation.kestra.workflowEvent, "shopify.orders.paid");
 });

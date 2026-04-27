@@ -1,6 +1,6 @@
 id: chat-commerce-order-fulfillment
 namespace: demo.commerce
-description: Fulfillment workflow triggered after the chat agent creates an order.
+description: Post-order workflow triggered after Shopify checkout creates a paid order.
 
 inputs:
   - id: orderId
@@ -10,20 +10,29 @@ inputs:
   - id: shippingMethod
     type: STRING
     defaults: standard
+  - id: workflowEvent
+    type: STRING
+    defaults: shopify.orders.paid
+  - id: cartId
+    type: STRING
+    required: false
+  - id: checkoutUrl
+    type: STRING
+    required: false
 
 tasks:
-  - id: validate_order
+  - id: receive_shopify_event
     type: io.kestra.plugin.core.log.Log
-    message: "Validating order {{ inputs.orderId }} for ${{ inputs.total }}"
+    message: "Received {{ inputs.workflowEvent }} for {{ inputs.orderId }} from Shopify checkout"
 
-  - id: reserve_inventory
+  - id: enrich_order_context
     type: io.kestra.plugin.core.log.Log
-    message: "Reserving inventory for {{ inputs.orderId }}"
+    message: "Enriching {{ inputs.orderId }} with chat intent, cart {{ inputs.cartId }}, and concierge attribution"
 
-  - id: capture_payment
+  - id: notify_merchant_ops
     type: io.kestra.plugin.core.log.Log
-    message: "Capturing payment for {{ inputs.orderId }}"
+    message: "Notifying merchant ops team about paid Shopify order {{ inputs.orderId }}"
 
-  - id: fulfillment_event
+  - id: sync_downstream_systems
     type: io.kestra.plugin.core.log.Log
-    message: "Order {{ inputs.orderId }} queued for {{ inputs.shippingMethod }} shipping"
+    message: "Syncing {{ inputs.orderId }} to warehouse, CRM, analytics, and Postgres audit trail"

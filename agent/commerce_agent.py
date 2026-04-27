@@ -19,6 +19,7 @@ class CommerceState(TypedDict, total=False):
     products: List[Dict[str, Any]]
     cart: List[Dict[str, Any]]
     order: Dict[str, Any]
+    automation: Dict[str, Any]
     reply: str
     trace: List[str]
 
@@ -49,7 +50,9 @@ def mcp_call(name: str, arguments: Dict[str, Any]) -> Any:
 def classify(state: CommerceState) -> CommerceState:
     message = state["message"].lower()
     trace = state.get("trace", []) + ["classify_intent"]
-    if any(word in message for word in ["checkout", "buy", "order", "place order"]):
+    if any(phrase in message for phrase in ["order paid", "paid order", "simulate paid", "simulate order", "post-order", "post order", "webhook"]):
+        intent = "post_order"
+    elif any(word in message for word in ["checkout", "buy", "order", "place order"]):
         intent = "checkout"
     elif any(word in message for word in ["add", "cart", "quote"]):
         intent = "cart"
@@ -85,6 +88,9 @@ def update_cart(state: CommerceState) -> CommerceState:
 
 def checkout(state: CommerceState) -> CommerceState:
     cart = state.get("cart")
+    order = state.get("order", {})
+    if order.get("quote", {}).get("source") == "shopify":
+        return {**state, "order": order, "trace": state.get("trace", []) + ["shopify.checkout_ready"]}
     if not cart:
         products = state.get("products") or mcp_call("search_catalog", {"query": state["message"], "tags": []})
         if not products:
@@ -92,28 +98,49 @@ def checkout(state: CommerceState) -> CommerceState:
         cart = [{"sku": products[0]["sku"], "quantity": 1}] if products else []
         state = {**state, "products": products, "cart": cart}
     order = mcp_call("create_order", {"items": cart, "shipping_method": "standard"}) if cart else {}
-    return {**state, "order": order, "trace": state.get("trace", []) + ["mcp.create_order", "kestra.workflow.prepared"]}
+    return {**state, "order": order, "trace": state.get("trace", []) + ["local.demo_order_created"]}
+
+
+def post_order(state: CommerceState) -> CommerceState:
+    automation = mcp_call("post_order_automation", {
+        "order": state.get("order", {}),
+        "cart": state.get("cart", []),
+        "session_id": state.get("sessionId", "demo")
+    })
+    return {**state, "automation": automation, "trace": state.get("trace", []) + ["shopify.orders_paid_webhook", "kestra.post_order_workflow"]}
 
 
 def compose_reply(state: CommerceState) -> CommerceState:
     intent = state.get("intent")
     products = state.get("products", [])
     order = state.get("order", {})
+    automation = state.get("automation", {})
 
-    if intent == "checkout" and order:
+    if intent == "post_order" and automation:
+        kestra = automation.get("kestra", {})
+        if kestra.get("status") == "triggered":
+            reply = (
+                f"Simulated Shopify paid order `{automation['orderId']}`. "
+                f"Kestra post-order workflow `{automation['kestraWorkflow']}` started as execution `{kestra.get('executionId')}`."
+            )
+        else:
+            reply = (
+                f"Simulated Shopify paid order `{automation['orderId']}`. "
+                f"Kestra workflow `{automation['kestraWorkflow']}` is configured, but not reachable right now."
+            )
+    elif intent == "checkout" and order:
         quote = order["quote"]
-        kestra = order.get("kestra", {})
-        kestra_line = (
-            f"Kestra execution `{kestra.get('executionId')}` was triggered."
-            if kestra.get("status") == "triggered"
-            else f"Kestra workflow `{order['kestraWorkflow']}` is configured, but not reachable right now."
-        )
         checkout_url = quote.get("checkoutUrl")
-        checkout_line = f" Continue checkout here: {checkout_url}" if checkout_url else ""
-        reply = (
-            f"Order {order['orderId']} is ready with {order['shippingMethod']} shipping. "
-            f"Total is ${quote.get('total', 0):.2f}. {kestra_line}{checkout_line}"
-        )
+        if quote.get("source") == "shopify":
+            reply = (
+                f"Your Shopify cart is ready. Estimated total is ${quote.get('total', 0):.2f}. "
+                "Use the checkout button to complete payment in Shopify. After payment, a Shopify order-paid webhook can trigger Kestra."
+            )
+        else:
+            reply = (
+                f"Local demo order {order['orderId']} is ready with {order.get('shippingMethod', 'standard')} shipping. "
+                f"Total is ${quote.get('total', 0):.2f}."
+            )
     elif intent == "cart" and order.get("quote"):
         quote = order["quote"]
         if quote.get("source") == "shopify":
@@ -160,6 +187,8 @@ def run_fallback_graph(state: CommerceState) -> CommerceState:
         state = search_products(state)
     elif state["intent"] == "cart":
         state = update_cart(state)
+    elif state["intent"] == "post_order":
+        state = post_order(state)
     else:
         state = checkout(state)
     return compose_reply(state)
@@ -176,16 +205,18 @@ def run_langgraph(state: CommerceState) -> CommerceState:
     graph.add_node("search_products", search_products)
     graph.add_node("update_cart", update_cart)
     graph.add_node("checkout", checkout)
+    graph.add_node("post_order", post_order)
     graph.add_node("compose_reply", compose_reply)
     graph.set_entry_point("classify")
     graph.add_conditional_edges(
         "classify",
         lambda current: current["intent"],
-        {"search": "search_products", "cart": "update_cart", "checkout": "checkout"}
+        {"search": "search_products", "cart": "update_cart", "checkout": "checkout", "post_order": "post_order"}
     )
     graph.add_edge("search_products", "compose_reply")
     graph.add_edge("update_cart", "compose_reply")
     graph.add_edge("checkout", "compose_reply")
+    graph.add_edge("post_order", "compose_reply")
     graph.add_edge("compose_reply", END)
     return graph.compile().invoke({**state, "trace": state.get("trace", []) + ["langgraph.StateGraph"]})
 
@@ -203,6 +234,7 @@ def main():
         "products": payload.get("products", []),
         "cart": payload.get("cart", []),
         "order": payload.get("order", {}),
+        "automation": payload.get("automation", {}),
         "trace": []
     })
     print(json.dumps({
@@ -210,7 +242,8 @@ def main():
         "trace": result.get("trace", []),
         "products": result.get("products", []),
         "cart": result.get("cart", []),
-        "order": result.get("order", {})
+        "order": result.get("order", {}),
+        "automation": result.get("automation", {})
     }))
 
 

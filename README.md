@@ -7,7 +7,7 @@ A demoable chat-based ecommerce experience using:
 - MCP-style JSON-RPC commerce tools for catalog search, cart quote, and order creation
 - Optional Shopify Storefront MCP integration for real store catalog/cart tools
 - Postgres schema and seed data
-- Kestra workflow execution for fulfillment orchestration
+- Kestra workflow execution for post-order merchant automation
 
 The app is designed to work locally even before you install optional Python agent packages. If `langgraph` is installed, the agent uses `StateGraph`; otherwise it runs the same graph path through a deterministic fallback for demos.
 
@@ -37,7 +37,7 @@ docker compose up -d
 - Kestra UI: http://localhost:8080
 - Flow file: `kestra/flows/chat-commerce-order-fulfillment.yml`
 
-The checkout path calls Kestra's execution API:
+Kestra is intentionally post-checkout. Shopify owns checkout, payment, tax, and order creation. After a Shopify order-paid event, the demo calls Kestra's execution API:
 
 ```text
 POST /api/v1/main/executions/demo.commerce/chat-commerce-order-fulfillment
@@ -59,7 +59,7 @@ The MCP endpoint is:
 https://your-store.myshopify.com/api/mcp
 ```
 
-The agent calls Shopify's Storefront MCP tools for product search and cart updates, then triggers the Kestra fulfillment workflow after order creation. Some Shopify stores restrict MCP access, so test against the specific store you plan to demo.
+The agent calls Shopify's Storefront MCP tools for product search and cart updates, then sends the buyer to Shopify checkout. The "Simulate order paid" action represents a Shopify webhook and triggers Kestra post-order automation. Some Shopify stores restrict MCP access, so test against the specific store you plan to demo.
 
 ## Agent Demo From Terminal
 
