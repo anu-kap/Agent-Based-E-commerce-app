@@ -1,17 +1,136 @@
 #!/usr/bin/env python3
 import json
+import os
 import sys
+import uuid
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "data" / "catalog.json"
+SHOPIFY_STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "").replace("https://", "").replace("http://", "").strip("/")
+KESTRA_URL = os.getenv("KESTRA_URL", "http://localhost:8080").rstrip("/")
+KESTRA_NAMESPACE = os.getenv("KESTRA_NAMESPACE", "demo.commerce")
+KESTRA_FLOW_ID = os.getenv("KESTRA_FLOW_ID", "chat-commerce-order-fulfillment")
 
 
 def catalog():
     return json.loads(CATALOG_PATH.read_text())
 
 
+def post_json(url, payload, headers=None, timeout=12):
+    body = json.dumps(payload).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST"
+    )
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def shopify_mcp_call(name, arguments):
+    if not SHOPIFY_STORE_DOMAIN:
+        raise RuntimeError("SHOPIFY_STORE_DOMAIN is not configured")
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "id": str(uuid.uuid4()),
+        "params": {"name": name, "arguments": arguments}
+    }
+    return post_json(f"https://{SHOPIFY_STORE_DOMAIN}/api/mcp", payload)
+
+
+def content_payload(response):
+    if "error" in response:
+        raise RuntimeError(response["error"].get("message", "Shopify MCP request failed"))
+    result = response.get("result", {})
+    if "structuredContent" in result:
+        return result["structuredContent"]
+    content = result.get("content", [])
+    if content and isinstance(content, list):
+        first = content[0]
+        if "json" in first:
+            return first["json"]
+        if "text" in first:
+            try:
+                return json.loads(first["text"])
+            except json.JSONDecodeError:
+                return {"text": first["text"]}
+    return result
+
+
+def collect_product_like(value):
+    if isinstance(value, list):
+        items = []
+        for entry in value:
+            items.extend(collect_product_like(entry))
+        return items
+    if isinstance(value, dict):
+        keys = {key.lower() for key in value}
+        if {"title", "name"} & keys and any(key in keys for key in ["price", "variants", "variant_id", "variantid", "url"]):
+            return [value]
+        items = []
+        for child in value.values():
+            items.extend(collect_product_like(child))
+        return items
+    return []
+
+
+def first_present(source, *keys, default=None):
+    for key in keys:
+        if isinstance(source, dict) and source.get(key) is not None:
+            return source[key]
+    return default
+
+
+def normalize_price(value):
+    if isinstance(value, dict):
+        value = first_present(value, "amount", "value", "price", default=0)
+    if isinstance(value, str):
+        value = value.replace("$", "").replace(",", "")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_shopify_product(item):
+    variants = item.get("variants") if isinstance(item.get("variants"), list) else []
+    variant = variants[0] if variants else {}
+    price = normalize_price(first_present(item, "price", "priceRange", "amount", default=first_present(variant, "price", default=0)))
+    variant_id = first_present(item, "variant_id", "variantId", "merchandise_id", "merchandiseId", default=first_present(variant, "id", "variant_id"))
+    return {
+        "sku": variant_id or first_present(item, "id", "product_id", "productId", default="SHOPIFY-RESULT"),
+        "name": first_present(item, "name", "title", default="Shopify product"),
+        "category": first_present(item, "productType", "category", default="shopify"),
+        "price": price,
+        "currency": first_present(item, "currency", "currencyCode", default=""),
+        "inventory": first_present(item, "availableForSale", "inventory", default="available"),
+        "rating": first_present(item, "rating", default=""),
+        "tags": first_present(item, "tags", default=[]),
+        "description": first_present(item, "description", "descriptionHtml", default=""),
+        "url": first_present(item, "url", "onlineStoreUrl", "productUrl", default=""),
+        "imageUrl": first_present(item, "image_url", "imageUrl", "featuredImage", default=""),
+        "source": "shopify",
+        "raw": item
+    }
+
+
+def search_shopify_catalog(query):
+    response = shopify_mcp_call("search_shop_catalog", {"query": query, "context": "Customer is shopping through an AI commerce assistant."})
+    payload = content_payload(response)
+    products = [normalize_shopify_product(item) for item in collect_product_like(payload)]
+    return products[:5] if products else [{"name": "Shopify MCP response", "description": json.dumps(payload)[:900], "source": "shopify", "price": 0, "sku": "SHOPIFY-RAW"}]
+
+
 def search_catalog(query="", max_price=None, tags=None):
+    if SHOPIFY_STORE_DOMAIN:
+        return search_shopify_catalog(query)
+
     terms = {term.lower() for term in str(query).replace(",", " ").split() if len(term) > 2}
     desired_tags = {tag.lower() for tag in (tags or [])}
     results = []
@@ -34,6 +153,22 @@ def search_catalog(query="", max_price=None, tags=None):
 
 
 def cart_quote(items):
+    if SHOPIFY_STORE_DOMAIN:
+        lines = []
+        for item in items:
+            merchandise_id = item.get("merchandise_id") or item.get("sku")
+            if merchandise_id:
+                lines.append({"merchandise_id": merchandise_id, "quantity": int(item.get("quantity", 1))})
+        response = shopify_mcp_call("update_cart", {"lines": lines})
+        payload = content_payload(response)
+        return {
+            "source": "shopify",
+            "cart": payload,
+            "checkoutUrl": first_present(payload, "checkoutUrl", "checkout_url", "checkoutUrl", default=""),
+            "total": normalize_price(first_present(payload, "totalAmount", "total", "cost", default=0)),
+            "lines": lines
+        }
+
     by_sku = {item["sku"]: item for item in catalog()}
     lines = []
     subtotal = 0
@@ -63,14 +198,41 @@ def cart_quote(items):
     }
 
 
+def trigger_kestra(order_id, total, shipping_method):
+    data = urlencode({
+        "orderId": order_id,
+        "total": str(total),
+        "shippingMethod": shipping_method
+    }).encode("utf-8")
+    request = Request(
+        f"{KESTRA_URL}/api/v1/main/executions/{KESTRA_NAMESPACE}/{KESTRA_FLOW_ID}",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST"
+    )
+    try:
+        with urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return {
+                "status": "triggered",
+                "executionId": payload.get("id"),
+                "url": f"{KESTRA_URL}/ui/executions/{payload.get('id')}" if payload.get("id") else KESTRA_URL
+            }
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL}
+
+
 def create_order(items, shipping_method="standard"):
     quote = cart_quote(items)
+    total = quote.get("total", 0)
+    order_id = "ORD-DEMO-1001" if quote.get("source") != "shopify" else f"SHOPIFY-CART-{uuid.uuid4().hex[:8].upper()}"
     return {
-        "orderId": "ORD-DEMO-1001",
+        "orderId": order_id,
         "status": "created",
         "shippingMethod": shipping_method,
         "quote": quote,
-        "kestraWorkflow": "chat-commerce-order-fulfillment"
+        "kestraWorkflow": KESTRA_FLOW_ID,
+        "kestra": trigger_kestra(order_id, total, shipping_method)
     }
 
 

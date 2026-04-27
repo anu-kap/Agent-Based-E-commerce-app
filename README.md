@@ -5,8 +5,9 @@ A demoable chat-based ecommerce experience using:
 - NodeJS for the web server and chat API
 - Python with LangGraph-style agent orchestration
 - MCP-style JSON-RPC commerce tools for catalog search, cart quote, and order creation
+- Optional Shopify Storefront MCP integration for real store catalog/cart tools
 - Postgres schema and seed data
-- Kestra workflow definition for fulfillment orchestration
+- Kestra workflow execution for fulfillment orchestration
 
 The app is designed to work locally even before you install optional Python agent packages. If `langgraph` is installed, the agent uses `StateGraph`; otherwise it runs the same graph path through a deterministic fallback for demos.
 
@@ -36,6 +37,30 @@ docker compose up -d
 - Kestra UI: http://localhost:8080
 - Flow file: `kestra/flows/chat-commerce-order-fulfillment.yml`
 
+The checkout path calls Kestra's execution API:
+
+```text
+POST /api/v1/main/executions/demo.commerce/chat-commerce-order-fulfillment
+```
+
+If Kestra is not running or the flow has not been imported yet, the chat still completes and reports that Kestra is configured but unavailable.
+
+## Shopify Storefront MCP
+
+Set a Shopify store domain to use Shopify's real Storefront MCP endpoint instead of the local demo catalog:
+
+```bash
+SHOPIFY_STORE_DOMAIN=your-store.myshopify.com npm start
+```
+
+The MCP endpoint is:
+
+```text
+https://your-store.myshopify.com/api/mcp
+```
+
+The agent calls Shopify's Storefront MCP tools for product search and cart updates, then triggers the Kestra fulfillment workflow after order creation. Some Shopify stores restrict MCP access, so test against the specific store you plan to demo.
+
 ## Agent Demo From Terminal
 
 ```bash
@@ -48,7 +73,7 @@ npm run agent:demo
 server.js                         NodeJS web/API server
 public/                           Browser chat experience
 agent/commerce_agent.py           LangGraph agent entry point
-agent/mcp/commerce_mcp_server.py  MCP-style JSON-RPC tool server
+agent/mcp/commerce_mcp_server.py  Local + Shopify Storefront MCP adapter
 data/catalog.json                 Demo catalog
 db/init/001_schema.sql            Postgres schema and seed data
 kestra/flows/                     Fulfillment workflow definitions
@@ -57,6 +82,6 @@ kestra/flows/                     Fulfillment workflow definitions
 ## Where To Extend
 
 - Swap deterministic classification in `agent/commerce_agent.py` with an LLM planner.
-- Point MCP tools at Postgres by using `DATABASE_URL` and `psycopg`.
-- Trigger Kestra through its API after `create_order`.
+- Point local MCP tools at Postgres by using `DATABASE_URL` and `psycopg`.
+- Persist chat session cart IDs so Shopify cart state survives across turns.
 - Add customer identity, promotions, returns, recommendations, and payment-provider mocks.

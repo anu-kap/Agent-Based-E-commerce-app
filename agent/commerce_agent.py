@@ -95,27 +95,51 @@ def compose_reply(state: CommerceState) -> CommerceState:
 
     if intent == "checkout" and order:
         quote = order["quote"]
+        kestra = order.get("kestra", {})
+        kestra_line = (
+            f"Kestra execution `{kestra.get('executionId')}` was triggered."
+            if kestra.get("status") == "triggered"
+            else f"Kestra workflow `{order['kestraWorkflow']}` is configured, but not reachable right now."
+        )
+        checkout_url = quote.get("checkoutUrl")
+        checkout_line = f" Continue checkout here: {checkout_url}" if checkout_url else ""
         reply = (
             f"Order {order['orderId']} is ready with {order['shippingMethod']} shipping. "
-            f"Total is ${quote['total']:.2f}. Kestra workflow `{order['kestraWorkflow']}` would now handle payment capture, inventory reserve, and fulfillment."
+            f"Total is ${quote.get('total', 0):.2f}. {kestra_line}{checkout_line}"
         )
     elif intent == "cart" and order.get("quote"):
-        line = order["quote"]["lines"][0]
-        reply = (
-            f"I added {line['name']} to the cart. Subtotal is ${order['quote']['subtotal']:.2f}; "
-            f"estimated total is ${order['quote']['total']:.2f}."
-        )
+        quote = order["quote"]
+        if quote.get("source") == "shopify":
+            checkout_url = quote.get("checkoutUrl")
+            reply = f"I updated the Shopify cart. Estimated total is ${quote.get('total', 0):.2f}."
+            if checkout_url:
+                reply += f" Checkout URL: {checkout_url}"
+        else:
+            line = quote["lines"][0]
+            reply = (
+                f"I added {line['name']} to the cart. Subtotal is ${quote['subtotal']:.2f}; "
+                f"estimated total is ${quote['total']:.2f}."
+            )
     elif products:
         top = products[0]
+        currency = top.get("currency") or "USD"
         comparisons = "\n".join(
-            f"- {item['name']} ({item['sku']}): ${item['price']}, rating {item['rating']}, {item['inventory']} in stock"
+            format_product_line(item)
             for item in products[:3]
         )
-        reply = f"Best match: {top['name']} at ${top['price']}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
+        reply = f"Best match: {top['name']} at {currency} ${top.get('price', 0):g}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
     else:
         reply = "I could not find a strong match. Try a product type, budget, or condition like waterproof, trail, laptop, or lightweight."
 
     return {**state, "reply": reply, "trace": state.get("trace", []) + ["compose_response"]}
+
+
+def format_product_line(item: Dict[str, Any]) -> str:
+    currency = item.get("currency") or "USD"
+    suffix = f", rating {item['rating']}" if item.get("rating") else ""
+    stock = f", {item['inventory']} in stock" if isinstance(item.get("inventory"), (int, float)) else ""
+    link = f" - {item['url']}" if item.get("url") else ""
+    return f"- {item.get('name', 'Product')} ({item.get('sku', 'SKU')}): {currency} ${item.get('price', 0):g}{suffix}{stock}{link}"
 
 
 def run_fallback_graph(state: CommerceState) -> CommerceState:
