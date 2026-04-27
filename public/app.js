@@ -12,14 +12,14 @@ function formatMoney(product) {
   return `${currency} $${price.toFixed(price % 1 === 0 ? 0 : 2)}`;
 }
 
-function addProductCards(container, products = []) {
+function addProductCards(container, products = [], options = {}) {
   const usableProducts = products.filter((product) => product && product.sku && product.name && product.price !== undefined);
   if (!usableProducts.length) return;
 
   const grid = document.createElement("div");
   grid.className = "product-grid";
 
-  for (const product of usableProducts.slice(0, 4)) {
+  for (const product of usableProducts.slice(0, options.limit || 4)) {
     const card = document.createElement("article");
     card.className = "product-card";
 
@@ -155,6 +155,11 @@ function addRadarReport(container, radar = {}) {
   header.append(title, badge);
   report.append(header);
 
+  const summary = document.createElement("p");
+  summary.className = "radar-summary";
+  summary.textContent = "This scan combines public campus signals, weather, recent shopper intent, and live Shopify products to tell the store what to feature this week.";
+  report.append(summary);
+
   const signalGrid = document.createElement("div");
   signalGrid.className = "signal-grid";
   for (const source of radar.sourceSummary || []) {
@@ -169,6 +174,31 @@ function addRadarReport(container, radar = {}) {
   }
   report.append(signalGrid);
 
+  if (radar.featuredProducts?.length) {
+    const productsTitle = document.createElement("p");
+    productsTitle.className = "radar-subhead";
+    productsTitle.textContent = "Products to feature now";
+    report.append(productsTitle);
+    const productList = document.createElement("div");
+    productList.className = "radar-products";
+    for (const product of radar.featuredProducts.slice(0, 3)) {
+      const row = document.createElement("div");
+      row.className = "radar-product";
+      const name = document.createElement("strong");
+      name.textContent = product.name;
+      const price = document.createElement("span");
+      price.textContent = formatMoney(product);
+      row.append(name, price);
+      productList.append(row);
+    }
+    report.append(productList);
+  }
+
+  const actionsTitle = document.createElement("p");
+  actionsTitle.className = "radar-subhead";
+  actionsTitle.textContent = "Merchant actions";
+  report.append(actionsTitle);
+
   const actions = document.createElement("ol");
   actions.className = "radar-actions";
   for (const action of radar.actions || []) {
@@ -177,14 +207,6 @@ function addRadarReport(container, radar = {}) {
     actions.append(item);
   }
   report.append(actions);
-
-  if (radar.featuredProducts?.length) {
-    const productsTitle = document.createElement("p");
-    productsTitle.className = "radar-subhead";
-    productsTitle.textContent = "Products to feature now";
-    report.append(productsTitle);
-    addProductCards(report, radar.featuredProducts);
-  }
 
   if (radar.kestra) {
     const panel = document.createElement("div");
@@ -233,7 +255,11 @@ function addMessage(role, text, trace = [], meta = {}) {
   }
 
   messages.append(bubble);
-  messages.scrollTop = messages.scrollHeight;
+  if (meta.radar?.reportId) {
+    messages.scrollTop = Math.max(0, bubble.offsetTop - messages.offsetTop);
+  } else {
+    messages.scrollTop = messages.scrollHeight;
+  }
 }
 
 async function sendMessage(text, extraPayload = {}) {

@@ -371,6 +371,11 @@ h2 {
   font-weight: 800;
 }
 
+.radar-summary {
+  margin: 0;
+  color: var(--muted);
+}
+
 .signal-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -411,6 +416,35 @@ h2 {
 .radar-subhead {
   color: var(--accent-strong);
   font-weight: 900;
+}
+
+.radar-products {
+  display: grid;
+  gap: 8px;
+}
+
+.radar-product {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbf8f2;
+}
+
+.radar-product strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-product span {
+  color: var(--accent-strong);
+  font-weight: 900;
+  white-space: nowrap;
 }
 
 .trace {
