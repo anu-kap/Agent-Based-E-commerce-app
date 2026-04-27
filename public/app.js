@@ -72,6 +72,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can search the catalog, compare options, manage a cart, and simulate checkout. Try asking for waterproof trail shoes under $150.",
+  "Hi, I can search the catalog, compare options, manage a cart, and simulate checkout. Try asking for a t-shirt, mug, business card, or backpack.",
   ["agent.ready", "mcp.tools.loaded"]
 );

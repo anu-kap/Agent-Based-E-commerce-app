@@ -135,7 +135,10 @@ def compose_reply(state: CommerceState) -> CommerceState:
         )
         reply = f"Best match: {top['name']} at {currency} ${top.get('price', 0):g}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
     else:
-        reply = "I could not find a strong match. Try a product type, budget, or condition like waterproof, trail, laptop, or lightweight."
+        reply = (
+            "I could not find a strong match in the connected catalog. "
+            "For the Shopify demo store, try t-shirt, mug, business card, backpack, phone case, or wedding invitation."
+        )
 
     return {**state, "reply": reply, "trace": state.get("trace", []) + ["compose_response"]}
 

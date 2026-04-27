@@ -153,7 +153,7 @@ def search_shopify_catalog(query):
         response = shopify_mcp_call("search_shop_catalog", {"query": query, "context": "Customer is shopping through an AI commerce assistant."})
     payload = content_payload(response)
     products = [normalize_shopify_product(item) for item in collect_product_like(payload)]
-    return products[:5] if products else [{"name": "Shopify MCP response", "description": json.dumps(payload)[:900], "source": "shopify", "price": 0, "sku": "SHOPIFY-RAW"}]
+    return products[:5]
 
 
 def search_catalog(query="", max_price=None, tags=None):
