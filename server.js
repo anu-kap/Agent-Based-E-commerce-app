@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(rootDir, "public");
 const port = Number(process.env.PORT || 3000);
+const sessions = new Map();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -97,7 +98,14 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && req.url === "/api/chat") {
       const payload = await readJson(req);
-      const result = await runAgent(payload);
+      const sessionId = payload.sessionId || "demo";
+      const session = sessions.get(sessionId) || {};
+      const result = await runAgent({ ...payload, ...session, sessionId });
+      sessions.set(sessionId, {
+        products: result.products || session.products || [],
+        cart: result.cart || session.cart || [],
+        order: result.order || session.order || {}
+      });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(result));
       return;

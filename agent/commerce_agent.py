@@ -72,6 +72,8 @@ def search_products(state: CommerceState) -> CommerceState:
 
 def update_cart(state: CommerceState) -> CommerceState:
     products = state.get("products") or mcp_call("search_catalog", {"query": state["message"], "tags": []})
+    if not products:
+        products = mcp_call("search_catalog", {"query": "", "tags": []})
     selected = products[0] if products else None
     cart = [{"sku": selected["sku"], "quantity": 1}] if selected else []
     quote = mcp_call("cart_quote", {"items": cart}) if cart else {"lines": [], "total": 0}
@@ -82,6 +84,8 @@ def checkout(state: CommerceState) -> CommerceState:
     cart = state.get("cart")
     if not cart:
         products = state.get("products") or mcp_call("search_catalog", {"query": state["message"], "tags": []})
+        if not products:
+            products = mcp_call("search_catalog", {"query": "", "tags": []})
         cart = [{"sku": products[0]["sku"], "quantity": 1}] if products else []
         state = {**state, "products": products, "cart": cart}
     order = mcp_call("create_order", {"items": cart, "shipping_method": "standard"}) if cart else {}
@@ -114,12 +118,14 @@ def compose_reply(state: CommerceState) -> CommerceState:
             reply = f"I updated the Shopify cart. Estimated total is ${quote.get('total', 0):.2f}."
             if checkout_url:
                 reply += f" Checkout URL: {checkout_url}"
-        else:
+        elif quote.get("lines"):
             line = quote["lines"][0]
             reply = (
                 f"I added {line['name']} to the cart. Subtotal is ${quote['subtotal']:.2f}; "
                 f"estimated total is ${quote['total']:.2f}."
             )
+        else:
+            reply = "I could not add an item yet because I do not have a product selection. Ask me to find a product first, then I can add the best match."
     elif products:
         top = products[0]
         currency = top.get("currency") or "USD"
@@ -184,8 +190,21 @@ def main():
     if not message:
         print(json.dumps({"reply": "Send me a shopping request to start.", "trace": ["empty_message"]}))
         return
-    result = run_langgraph({"message": message, "sessionId": payload.get("sessionId", "demo"), "trace": []})
-    print(json.dumps({"reply": result["reply"], "trace": result.get("trace", [])}))
+    result = run_langgraph({
+        "message": message,
+        "sessionId": payload.get("sessionId", "demo"),
+        "products": payload.get("products", []),
+        "cart": payload.get("cart", []),
+        "order": payload.get("order", {}),
+        "trace": []
+    })
+    print(json.dumps({
+        "reply": result["reply"],
+        "trace": result.get("trace", []),
+        "products": result.get("products", []),
+        "cart": result.get("cart", []),
+        "order": result.get("order", {})
+    }))
 
 
 if __name__ == "__main__":
