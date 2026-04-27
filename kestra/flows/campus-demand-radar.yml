@@ -1,0 +1,41 @@
+id: campus-demand-radar
+namespace: demo.commerce
+description: Scheduled campus retail opportunity scan that mashes up events, weather, shopper intent, and Shopify catalog signals.
+
+inputs:
+  - id: orderId
+    type: STRING
+    defaults: RADAR-DEMO
+  - id: total
+    type: FLOAT
+    defaults: 0
+  - id: workflowEvent
+    type: STRING
+    defaults: campus.demand_radar
+  - id: cartId
+    type: STRING
+    required: false
+  - id: checkoutUrl
+    type: STRING
+    required: false
+
+tasks:
+  - id: read_campus_calendar
+    type: io.kestra.plugin.core.log.Log
+    message: "Reading Coe calendar and event pages for upcoming retail moments"
+
+  - id: read_weather_signal
+    type: io.kestra.plugin.core.log.Log
+    message: "Checking Cedar Rapids weather for game-day and campus-visit merchandising signals"
+
+  - id: analyze_shopper_intent
+    type: io.kestra.plugin.core.log.Log
+    message: "Aggregating concierge searches and missed demand from Postgres intent history"
+
+  - id: match_shopify_inventory
+    type: io.kestra.plugin.core.log.Log
+    message: "Matching demand signals against Shopify catalog and inventory through Storefront MCP"
+
+  - id: publish_merchant_actions
+    type: io.kestra.plugin.core.log.Log
+    message: "Publishing featured products, restock checks, and campaign actions for campus store staff"

@@ -9,6 +9,7 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(rootDir, "public");
 const port = Number(process.env.PORT || 3000);
 const sessions = new Map();
+const intentLog = [];
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -100,12 +101,23 @@ const server = createServer(async (req, res) => {
       const payload = await readJson(req);
       const sessionId = payload.sessionId || "demo";
       const session = sessions.get(sessionId) || {};
-      const result = await runAgent({ ...payload, ...session, sessionId });
+      if (payload.message) {
+        intentLog.push({
+          sessionId,
+          message: payload.message,
+          selectedSku: payload.selectedSku || "",
+          timestamp: new Date().toISOString()
+        });
+        if (intentLog.length > 60) intentLog.shift();
+      }
+      const recentIntents = intentLog.slice(-15);
+      const result = await runAgent({ ...payload, ...session, sessionId, recentIntents });
       sessions.set(sessionId, {
         products: result.products || session.products || [],
         cart: result.cart || session.cart || [],
         order: result.order || session.order || {},
-        automation: result.automation || session.automation || {}
+        automation: result.automation || session.automation || {},
+        radar: result.radar || session.radar || {}
       });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(result));

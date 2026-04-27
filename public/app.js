@@ -140,6 +140,68 @@ function addAutomationStatus(container, automation = {}) {
   container.append(panel);
 }
 
+function addRadarReport(container, radar = {}) {
+  if (!radar.reportId) return;
+
+  const report = document.createElement("section");
+  report.className = "radar-report";
+
+  const header = document.createElement("div");
+  header.className = "radar-header";
+  const title = document.createElement("h3");
+  title.textContent = "Campus Demand Radar";
+  const badge = document.createElement("span");
+  badge.textContent = radar.reportId;
+  header.append(title, badge);
+  report.append(header);
+
+  const signalGrid = document.createElement("div");
+  signalGrid.className = "signal-grid";
+  for (const source of radar.sourceSummary || []) {
+    const item = document.createElement("div");
+    item.className = "signal";
+    const name = document.createElement("strong");
+    name.textContent = source.name;
+    const status = document.createElement("span");
+    status.textContent = source.status;
+    item.append(name, status);
+    signalGrid.append(item);
+  }
+  report.append(signalGrid);
+
+  const actions = document.createElement("ol");
+  actions.className = "radar-actions";
+  for (const action of radar.actions || []) {
+    const item = document.createElement("li");
+    item.textContent = action;
+    actions.append(item);
+  }
+  report.append(actions);
+
+  if (radar.featuredProducts?.length) {
+    const productsTitle = document.createElement("p");
+    productsTitle.className = "radar-subhead";
+    productsTitle.textContent = "Products to feature now";
+    report.append(productsTitle);
+    addProductCards(report, radar.featuredProducts);
+  }
+
+  if (radar.kestra) {
+    const panel = document.createElement("div");
+    panel.className = "automation-status";
+    const title = document.createElement("strong");
+    title.textContent = radar.kestra.status === "triggered" ? "Kestra radar workflow started" : "Kestra radar workflow ready";
+    const detail = document.createElement("span");
+    detail.textContent = radar.kestra.executionId
+      ? `Execution ${radar.kestra.executionId}`
+      : "Start Kestra locally to execute the scheduled version of this scan.";
+    panel.append(title, detail);
+    report.append(panel);
+  }
+
+  container.append(report);
+}
+
 function addMessage(role, text, trace = [], meta = {}) {
   const bubble = document.createElement("article");
   bubble.className = `message ${role}`;
@@ -153,6 +215,7 @@ function addMessage(role, text, trace = [], meta = {}) {
       addCheckoutLink(bubble, meta.order || {});
     }
     addAutomationStatus(bubble, meta.automation || {});
+    addRadarReport(bubble, meta.radar || {});
   }
 
   if (trace.length) {
@@ -219,6 +282,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can help parents, alumni, students, and fans find the right Coe College gear, build a real Shopify cart, and show how paid orders flow into merchant operations. Try asking for a hoodie, alumni gift, hat, or mug.",
-  ["agent.ready", "shopify.mcp.live", "kestra.post_order.ready"]
+  "Hi, I can help parents, alumni, students, and fans find the right Coe College gear, build a real Shopify cart, and run a campus demand radar that mashes up events, weather, shopper intent, and Shopify inventory.",
+  ["agent.ready", "shopify.mcp.live", "kestra.radar.ready"]
 );

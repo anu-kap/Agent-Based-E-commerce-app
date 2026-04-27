@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -14,6 +16,9 @@ SHOPIFY_STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "").replace("https://",
 KESTRA_URL = os.getenv("KESTRA_URL", "http://localhost:8080").rstrip("/")
 KESTRA_NAMESPACE = os.getenv("KESTRA_NAMESPACE", "demo.commerce")
 KESTRA_FLOW_ID = os.getenv("KESTRA_FLOW_ID", "chat-commerce-order-fulfillment")
+KESTRA_RADAR_FLOW_ID = os.getenv("KESTRA_RADAR_FLOW_ID", "campus-demand-radar")
+COE_EVENTS_URL = "https://www.coe.edu/why-coe/events/calendar"
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast?latitude=41.9779&longitude=-91.6656&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&timezone=America%2FChicago&forecast_days=7"
 
 
 def catalog():
@@ -30,6 +35,18 @@ def post_json(url, payload, headers=None, timeout=12):
     )
     with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def get_json(url, timeout=12):
+    request = Request(url, headers={"User-Agent": "CampusDemandRadar/0.1"})
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def get_text(url, timeout=12):
+    request = Request(url, headers={"User-Agent": "CampusDemandRadar/0.1"})
+    with urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="ignore")
 
 
 def shopify_mcp_call(name, arguments):
@@ -230,7 +247,8 @@ def cart_quote(items):
     }
 
 
-def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url=""):
+def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url="", flow_id=None):
+    flow_id = flow_id or KESTRA_FLOW_ID
     data = urlencode({
         "orderId": order_id,
         "total": str(total),
@@ -239,7 +257,7 @@ def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url="")
         "checkoutUrl": checkout_url
     }).encode("utf-8")
     request = Request(
-        f"{KESTRA_URL}/api/v1/main/executions/{KESTRA_NAMESPACE}/{KESTRA_FLOW_ID}",
+        f"{KESTRA_URL}/api/v1/main/executions/{KESTRA_NAMESPACE}/{flow_id}",
         data=data,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST"
@@ -251,10 +269,11 @@ def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url="")
                 "status": "triggered",
                 "executionId": payload.get("id"),
                 "url": f"{KESTRA_URL}/ui/executions/{payload.get('id')}" if payload.get("id") else KESTRA_URL,
-                "workflowEvent": workflow_event
+                "workflowEvent": workflow_event,
+                "flowId": flow_id
             }
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
-        return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL, "workflowEvent": workflow_event}
+        return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL, "workflowEvent": workflow_event, "flowId": flow_id}
 
 
 def create_order(items, shipping_method="standard"):
@@ -289,6 +308,181 @@ def post_order_automation(order=None, cart=None, session_id="demo"):
         "checkoutUrl": checkout_url,
         "kestraWorkflow": KESTRA_FLOW_ID,
         "kestra": trigger_kestra(order_id, total, "shopify.orders.paid", cart_id, checkout_url)
+    }
+
+
+def compact_text(html):
+    text = re.sub(r"<script[\s\S]*?</script>", " ", html, flags=re.I)
+    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def campus_events_signal():
+    try:
+        text = compact_text(get_text(COE_EVENTS_URL, timeout=5))
+        keywords = ["graduation", "alumni", "homecoming", "athletics", "family", "orientation", "student", "admission"]
+        hits = []
+        for keyword in keywords:
+            match = re.search(r"([A-Z][a-z]{2}\d{2}[^.]{0,140}" + keyword + r"[^.]{0,160})", text, flags=re.I)
+            if match:
+                hits.append(match.group(1).strip())
+        return {
+            "status": "live",
+            "source": COE_EVENTS_URL,
+            "signals": hits[:4] or ["Upcoming campus events detected on Coe calendar."],
+            "keywords": [keyword for keyword in keywords if keyword in text.lower()]
+        }
+    except Exception as exc:
+        return {
+            "status": "fallback",
+            "source": COE_EVENTS_URL,
+            "signals": ["Could not read live Coe calendar; using campus retail season defaults."],
+            "keywords": ["alumni", "student", "athletics"],
+            "error": str(exc)
+        }
+
+
+def weather_signal():
+    try:
+        data = get_json(OPEN_METEO_URL, timeout=5)
+        daily = data.get("daily", {})
+        max_temps = daily.get("temperature_2m_max", [])
+        min_temps = daily.get("temperature_2m_min", [])
+        precip = daily.get("precipitation_probability_max", [])
+        avg_high = round(sum(max_temps) / len(max_temps), 1) if max_temps else None
+        cold_days = sum(1 for value in max_temps if value is not None and value < 55)
+        rain_days = sum(1 for value in precip if value is not None and value >= 40)
+        signals = []
+        if cold_days:
+            signals.append(f"{cold_days} cool days in Cedar Rapids forecast; feature hoodies and fleece.")
+        if rain_days:
+            signals.append(f"{rain_days} higher-rain-probability days; feature outerwear and pickup-ready items.")
+        if not signals and avg_high:
+            signals.append(f"Average high near {avg_high}F; feature lighter tees, hats, and drinkware.")
+        return {
+            "status": "live",
+            "source": "https://open-meteo.com/",
+            "avgHighF": avg_high,
+            "minLowF": min(min_temps) if min_temps else None,
+            "rainDays": rain_days,
+            "signals": signals
+        }
+    except Exception as exc:
+        return {
+            "status": "fallback",
+            "source": "https://open-meteo.com/",
+            "signals": ["Weather unavailable; defaulting to hoodie, hat, and drinkware opportunities."],
+            "error": str(exc)
+        }
+
+
+def intent_signal(recent_intents=None):
+    recent_intents = recent_intents or []
+    text = " ".join(entry.get("message", "") for entry in recent_intents).lower()
+    buckets = {
+        "alumni": ["alum", "alumni"],
+        "hoodie": ["hoodie", "fleece", "cold"],
+        "gift": ["gift", "parent", "family"],
+        "drinkware": ["mug", "bottle", "drink"],
+        "pickup": ["pickup", "today", "tomorrow", "weekend"]
+    }
+    counts = {
+        name: sum(text.count(term) for term in terms)
+        for name, terms in buckets.items()
+    }
+    ranked = [name for name, count in sorted(counts.items(), key=lambda item: -item[1]) if count]
+    return {
+        "status": "live" if recent_intents else "seeded",
+        "source": "in-app shopper intent log",
+        "topIntents": ranked[:5] or ["alumni", "hoodie", "gift"],
+        "sampleCount": len(recent_intents),
+        "signals": [
+            f"{len(recent_intents)} recent chat turns analyzed.",
+            "Top inferred demand: " + ", ".join(ranked[:3] or ["alumni", "hoodie", "gift"])
+        ]
+    }
+
+
+def product_signal(queries):
+    recommendations = []
+    gaps = []
+    for query in queries:
+        try:
+            matches = search_catalog(query)
+            if matches:
+                recommendations.append({"query": query, "product": matches[0]})
+            else:
+                gaps.append(f"No strong Shopify match for '{query}'.")
+        except Exception as exc:
+            gaps.append(f"Could not search Shopify for '{query}': {exc}")
+    return {
+        "status": "live" if recommendations else "partial",
+        "source": f"https://{SHOPIFY_STORE_DOMAIN}/api/mcp" if SHOPIFY_STORE_DOMAIN else "local catalog",
+        "recommendations": recommendations[:5],
+        "products": [item["product"] for item in recommendations[:5]],
+        "gaps": gaps[:4]
+    }
+
+
+def campus_demand_radar(recent_intents=None, focus="homecoming week"):
+    events = campus_events_signal()
+    weather = weather_signal()
+    intents = intent_signal(recent_intents)
+    query_terms = []
+
+    joined_signals = " ".join(events.get("keywords", []) + intents.get("topIntents", []) + weather.get("signals", [])).lower()
+    if "hoodie" in joined_signals or "cool" in joined_signals or "cold" in joined_signals:
+        query_terms.append("hoodie")
+    if "alumni" in joined_signals or "alum" in joined_signals:
+        query_terms.append("alumni")
+    if "gift" in joined_signals or "family" in joined_signals:
+        query_terms.append("gift")
+    if "rain" in joined_signals:
+        query_terms.append("hat")
+    if "drinkware" in joined_signals or "mug" in joined_signals:
+        query_terms.append("mug")
+    query_terms.extend(["hoodie", "alumni gift", "campus mug"])
+    deduped_queries = list(dict.fromkeys(query_terms))[:3]
+    products = product_signal(deduped_queries)
+
+    actions = []
+    if any("hoodie" in query for query in deduped_queries):
+        actions.append("Feature hoodies/fleece in the concierge this week and check sizes before event traffic.")
+    if "alumni" in " ".join(deduped_queries):
+        actions.append("Create an alumni gift bundle: hoodie or tee plus license plate/drinkware.")
+    if products.get("gaps"):
+        actions.append("Review missed product gaps and decide whether to add substitutes or merchandising copy.")
+    actions.append("Send daily event-week demand report to store staff with top searches and recommended products.")
+
+    report_id = f"RADAR-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    kestra = trigger_kestra(
+        report_id,
+        len(products.get("products", [])),
+        "campus.demand_radar",
+        flow_id=KESTRA_RADAR_FLOW_ID
+    )
+    return {
+        "reportId": report_id,
+        "focus": focus,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "signals": {
+            "events": events,
+            "weather": weather,
+            "intent": intents,
+            "products": products
+        },
+        "actions": actions,
+        "featuredProducts": products.get("products", []),
+        "sourceSummary": [
+            {"name": "Coe events", "status": events.get("status"), "url": events.get("source")},
+            {"name": "Cedar Rapids weather", "status": weather.get("status"), "url": weather.get("source")},
+            {"name": "Shopper intent", "status": intents.get("status"), "url": "local session intent log"},
+            {"name": "Shopify MCP", "status": products.get("status"), "url": products.get("source")}
+        ],
+        "kestraWorkflow": KESTRA_RADAR_FLOW_ID,
+        "kestra": kestra
     }
 
 
@@ -339,6 +533,17 @@ TOOLS = {
             }
         },
         "handler": post_order_automation
+    },
+    "campus_demand_radar": {
+        "description": "Run a web + Shopify + shopper-intent campus demand radar scan and prepare Kestra merchant actions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "recent_intents": {"type": "array"},
+                "focus": {"type": "string"}
+            }
+        },
+        "handler": campus_demand_radar
     }
 }
 

@@ -20,6 +20,8 @@ class CommerceState(TypedDict, total=False):
     cart: List[Dict[str, Any]]
     order: Dict[str, Any]
     automation: Dict[str, Any]
+    radar: Dict[str, Any]
+    recentIntents: List[Dict[str, Any]]
     reply: str
     trace: List[str]
 
@@ -37,7 +39,7 @@ def mcp_call(name: str, arguments: Dict[str, Any]) -> Any:
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
     ]
-    stdout, stderr = process.communicate("\n".join(json.dumps(item) for item in requests) + "\n", timeout=10)
+    stdout, stderr = process.communicate("\n".join(json.dumps(item) for item in requests) + "\n", timeout=25)
     if process.returncode not in (0, None):
         raise RuntimeError(stderr)
     lines = [json.loads(line) for line in stdout.splitlines() if line.strip()]
@@ -50,7 +52,9 @@ def mcp_call(name: str, arguments: Dict[str, Any]) -> Any:
 def classify(state: CommerceState) -> CommerceState:
     message = state["message"].lower()
     trace = state.get("trace", []) + ["classify_intent"]
-    if any(phrase in message for phrase in ["order paid", "paid order", "simulate paid", "simulate order", "post-order", "post order", "webhook"]):
+    if any(phrase in message for phrase in ["radar", "opportunity scan", "demand scan", "campus scan", "homecoming readiness", "campaign scan", "readiness"]):
+        intent = "radar"
+    elif any(phrase in message for phrase in ["order paid", "paid order", "simulate paid", "simulate order", "post-order", "post order", "webhook"]):
         intent = "post_order"
     elif any(word in message for word in ["checkout", "buy", "order", "place order"]):
         intent = "checkout"
@@ -110,13 +114,32 @@ def post_order(state: CommerceState) -> CommerceState:
     return {**state, "automation": automation, "trace": state.get("trace", []) + ["shopify.orders_paid_webhook", "kestra.post_order_workflow"]}
 
 
+def campus_radar(state: CommerceState) -> CommerceState:
+    radar = mcp_call("campus_demand_radar", {
+        "recent_intents": state.get("recentIntents", []),
+        "focus": "this week's campus retail opportunity scan"
+    })
+    return {**state, "radar": radar, "products": radar.get("featuredProducts", []), "trace": state.get("trace", []) + ["web.coe_events", "web.weather", "mcp.shopify_catalog", "kestra.campus_demand_radar"]}
+
+
 def compose_reply(state: CommerceState) -> CommerceState:
     intent = state.get("intent")
     products = state.get("products", [])
     order = state.get("order", {})
     automation = state.get("automation", {})
+    radar = state.get("radar", {})
 
-    if intent == "post_order" and automation:
+    if intent == "radar" and radar:
+        actions = radar.get("actions", [])
+        action_text = " ".join(f"{index + 1}. {action}" for index, action in enumerate(actions[:3]))
+        kestra = radar.get("kestra", {})
+        kestra_text = (
+            f" Kestra workflow `{radar.get('kestraWorkflow')}` started as execution `{kestra.get('executionId')}`."
+            if kestra.get("status") == "triggered"
+            else f" Kestra workflow `{radar.get('kestraWorkflow')}` is ready but not running locally."
+        )
+        reply = f"Campus Demand Radar scanned events, weather, shopper intent, and Shopify inventory. Recommended actions: {action_text}{kestra_text}"
+    elif intent == "post_order" and automation:
         kestra = automation.get("kestra", {})
         if kestra.get("status") == "triggered":
             reply = (
@@ -196,6 +219,8 @@ def run_fallback_graph(state: CommerceState) -> CommerceState:
         state = update_cart(state)
     elif state["intent"] == "post_order":
         state = post_order(state)
+    elif state["intent"] == "radar":
+        state = campus_radar(state)
     else:
         state = checkout(state)
     return compose_reply(state)
@@ -213,17 +238,19 @@ def run_langgraph(state: CommerceState) -> CommerceState:
     graph.add_node("update_cart", update_cart)
     graph.add_node("checkout", checkout)
     graph.add_node("post_order", post_order)
+    graph.add_node("campus_radar", campus_radar)
     graph.add_node("compose_reply", compose_reply)
     graph.set_entry_point("classify")
     graph.add_conditional_edges(
         "classify",
         lambda current: current["intent"],
-        {"search": "search_products", "cart": "update_cart", "checkout": "checkout", "post_order": "post_order"}
+        {"search": "search_products", "cart": "update_cart", "checkout": "checkout", "post_order": "post_order", "radar": "campus_radar"}
     )
     graph.add_edge("search_products", "compose_reply")
     graph.add_edge("update_cart", "compose_reply")
     graph.add_edge("checkout", "compose_reply")
     graph.add_edge("post_order", "compose_reply")
+    graph.add_edge("campus_radar", "compose_reply")
     graph.add_edge("compose_reply", END)
     return graph.compile().invoke({**state, "trace": state.get("trace", []) + ["langgraph.StateGraph"]})
 
@@ -242,6 +269,8 @@ def main():
         "cart": payload.get("cart", []),
         "order": payload.get("order", {}),
         "automation": payload.get("automation", {}),
+        "radar": payload.get("radar", {}),
+        "recentIntents": payload.get("recentIntents", []),
         "trace": []
     })
     print(json.dumps({
@@ -250,7 +279,8 @@ def main():
         "products": result.get("products", []),
         "cart": result.get("cart", []),
         "order": result.get("order", {}),
-        "automation": result.get("automation", {})
+        "automation": result.get("automation", {}),
+        "radar": result.get("radar", {})
     }))
 
 

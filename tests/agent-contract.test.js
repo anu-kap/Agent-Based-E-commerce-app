@@ -64,3 +64,15 @@ test("post-order path triggers Kestra automation hook", async () => {
   assert.ok(automation.trace.includes("kestra.post_order_workflow"));
   assert.equal(automation.automation.kestra.workflowEvent, "shopify.orders.paid");
 });
+
+test("campus radar returns merchant actions", async () => {
+  const result = await runAgent("Run campus opportunity scan", {
+    recentIntents: [
+      { message: "Find a hoodie for an alum" },
+      { message: "Need a parent gift under $50" }
+    ]
+  });
+  assert.match(result.reply, /Campus Demand Radar scanned/);
+  assert.ok(result.trace.includes("kestra.campus_demand_radar"));
+  assert.ok(result.radar.actions.length >= 1);
+});

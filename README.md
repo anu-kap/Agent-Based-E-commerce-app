@@ -8,6 +8,7 @@ A demoable chat-based ecommerce experience using:
 - Optional Shopify Storefront MCP integration for real store catalog/cart tools
 - Postgres schema and seed data
 - Kestra workflow execution for post-order merchant automation
+- Campus Demand Radar that mashes up events, weather, shopper intent, and Shopify products
 
 The app is designed to work locally even before you install optional Python agent packages. If `langgraph` is installed, the agent uses `StateGraph`; otherwise it runs the same graph path through a deterministic fallback for demos.
 
@@ -35,7 +36,8 @@ docker compose up -d
 
 - Postgres: `localhost:5432`
 - Kestra UI: http://localhost:8080
-- Flow file: `kestra/flows/chat-commerce-order-fulfillment.yml`
+- Post-order flow file: `kestra/flows/chat-commerce-order-fulfillment.yml`
+- Demand radar flow file: `kestra/flows/campus-demand-radar.yml`
 
 Kestra is intentionally post-checkout. Shopify owns checkout, payment, tax, and order creation. After a Shopify order-paid event, the demo calls Kestra's execution API:
 
@@ -44,6 +46,14 @@ POST /api/v1/main/executions/demo.commerce/chat-commerce-order-fulfillment
 ```
 
 If Kestra is not running or the flow has not been imported yet, the chat still completes and reports that Kestra is configured but unavailable.
+
+The stronger Kestra demo is the Campus Demand Radar. Ask:
+
+```text
+Run campus opportunity scan
+```
+
+The agent runs an MCP tool that reads Coe event signals, Cedar Rapids weather, recent chat intent, and Shopify catalog matches, then prepares merchant actions and triggers the `campus-demand-radar` Kestra workflow if Kestra is running.
 
 ## Shopify Storefront MCP
 

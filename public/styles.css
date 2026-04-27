@@ -338,6 +338,81 @@ h2 {
   background: #fff;
 }
 
+.radar-report {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #e3d4ba;
+  border-radius: 8px;
+  background: #fff;
+  white-space: normal;
+}
+
+.radar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.radar-header h3,
+.radar-subhead {
+  margin: 0;
+}
+
+.radar-header h3 {
+  font-size: 18px;
+}
+
+.radar-header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.signal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.signal {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbf8f2;
+}
+
+.signal strong {
+  font-size: 12px;
+}
+
+.signal span {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.radar-actions {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.radar-actions li {
+  padding-left: 4px;
+}
+
+.radar-subhead {
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
 .trace {
   margin-top: 10px;
   color: var(--muted);
@@ -433,6 +508,10 @@ h2 {
 
   .product-grid {
     grid-template-columns: 1fr;
+  }
+
+  .signal-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
