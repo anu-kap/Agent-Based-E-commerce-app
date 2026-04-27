@@ -100,7 +100,11 @@ def checkout(state: CommerceState) -> CommerceState:
             products = mcp_call("search_catalog", {"query": "", "tags": []})
         cart = [{"sku": products[0]["sku"], "quantity": 1}] if products else []
         state = {**state, "products": products, "cart": cart}
-    order = mcp_call("create_order", {"items": cart, "shipping_method": "standard"}) if cart else {}
+    order = mcp_call("create_order", {
+        "items": cart,
+        "shipping_method": "standard",
+        "session_id": state.get("sessionId", "demo"),
+    }) if cart else {}
     return {**state, "order": order, "trace": state.get("trace", []) + ["local.demo_order_created"]}
 
 
@@ -255,21 +259,30 @@ def run_langgraph(state: CommerceState) -> CommerceState:
 
 
 def main():
+    from agent import db  # local import keeps server.js spawn light when DB unused
+
     payload = json.loads(sys.stdin.read() or "{}")
     message = payload.get("message", "").strip()
     if not message:
         print(json.dumps({"reply": "Send me a shopping request to start.", "trace": ["empty_message"]}))
         return
+
+    session_id = payload.get("sessionId", "demo")
+    db.log_intent(session_id, message, payload.get("selectedSku", ""))
+
+    in_memory_intents = payload.get("recentIntents", []) or []
+    recent_intents = db.recent_intents(limit=15) or in_memory_intents
+
     result = run_langgraph({
         "message": message,
-        "sessionId": payload.get("sessionId", "demo"),
+        "sessionId": session_id,
         "selectedSku": payload.get("selectedSku", ""),
         "products": payload.get("products", []),
         "cart": payload.get("cart", []),
         "order": payload.get("order", {}),
         "automation": payload.get("automation", {}),
         "radar": payload.get("radar", {}),
-        "recentIntents": payload.get("recentIntents", []),
+        "recentIntents": recent_intents,
         "trace": []
     })
     print(json.dumps({

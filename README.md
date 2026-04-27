@@ -25,11 +25,13 @@ flowchart LR
   mcp -->|"JSON-RPC"| shopify[(Shopify Storefront MCP)]
   mcp -->|"HTTP"| events[Coe events page]
   mcp -->|"HTTP"| weather[Open-Meteo]
+  mcp -->|"cache + persist"| postgres[(Postgres)]
   mcp -->|"HTTP POST"| kestra[(Kestra workflows)]
-  kestra -.optional.-> postgres[(Postgres)]
+  kestra --> postgres
 ```
 
-Postgres and Kestra are optional — the chat works without them.
+**Catalog source-of-truth chain** (when `SHOPIFY_STORE_DOMAIN` is set):
+fresh Postgres cache (1h TTL) → Shopify Storefront MCP → stale Postgres cache → seed catalog. Postgres and Kestra are both optional; the app works with neither.
 
 ## What's real vs. what's mocked
 
@@ -37,26 +39,33 @@ Postgres and Kestra are optional — the chat works without them.
 |---|---|---|
 | Live Shopify catalog search | Real | `SHOPIFY_STORE_DOMAIN=thekohawkshop.com` calls Shopify's Storefront MCP |
 | Live Shopify cart + checkout URL | Real | Returned by the same MCP endpoint |
-| Local demo catalog fallback | Real | `data/catalog.json`, used if no Shopify domain configured |
+| Postgres read-through cache | Real | When `DATABASE_URL` is set: 1h TTL on Shopify search responses; falls back to stale entries when Shopify hiccups |
+| Seed catalog (last-resort fallback) | Real | `data/seed_catalog.json` — used only when Shopify is unreachable AND cache is empty (or no `SHOPIFY_STORE_DOMAIN` is set at all) |
 | LangGraph state machine | Real if `langgraph` installed; otherwise deterministic fallback runs the same nodes |
 | Coe College events signal | Real | Scrapes the public events calendar |
 | Cedar Rapids weather signal | Real | Open-Meteo public API |
-| Shopper intent signal | Real | Aggregated from the in-session intent log |
+| Shopper intent log | Real | Persisted to `chat_intents` when `DATABASE_URL` is set; falls back to in-memory log otherwise |
+| Local demo order persistence | Real | Persisted to `orders` table when `DATABASE_URL` is set |
 | Kestra post-order automation | Real workflow trigger; needs `docker compose up kestra` to actually run |
 | Shopify `orders/paid` webhook | **Simulated** by the "Simulate order paid" button — proves the handoff shape, not a real webhook |
-| Postgres schema | Real init scripts in `db/init/` for when you wire up persistence |
 
 ## Quick start
 
 ```bash
-# 1. Local catalog mode (no external services)
+# 1. Seed-catalog mode (no external services, no DB)
 npm start
 # → http://localhost:3000
 
-# 2. Live Shopify mode (Kohawk Shop)
+# 2. Live Shopify mode (Kohawk Shop) — no DB cache, no persistence
 SHOPIFY_STORE_DOMAIN=thekohawkshop.com npm start
 
-# 3. Optional: turn on Postgres + Kestra for the full radar workflow demo
+# 3. Live Shopify + Postgres cache + intent/order persistence
+docker compose up -d postgres
+DATABASE_URL=postgresql://commerce:commerce@localhost:5432/commerce \
+  SHOPIFY_STORE_DOMAIN=thekohawkshop.com npm start
+# Schema auto-bootstraps from db/init/001_schema.sql on first DB call.
+
+# 4. Add Kestra on top for the full post-order + radar workflow demo
 docker compose up -d
 # Kestra UI at http://localhost:8080, Postgres at localhost:5432
 ```
@@ -91,12 +100,13 @@ server.js                          Node web/API server (no framework)
 public/                            Browser UI (vanilla HTML/CSS/JS)
 agent/commerce_agent.py            LangGraph agent entry point
 agent/mcp/commerce_mcp_server.py   MCP tools (importable + JSON-RPC entry)
-data/catalog.json                  Local demo catalog
-db/init/001_schema.sql             Postgres schema and seed data
+agent/db.py                        Optional Postgres helpers (cache + persistence)
+data/seed_catalog.json             Last-resort fallback catalog
+db/init/001_schema.sql             Idempotent schema (auto-applied on first DB call)
 kestra/flows/                      Kestra workflow YAML definitions
 docker-compose.yml                 Postgres + Kestra for local optional services
 Dockerfile                         Node + Python image for cloud deploy
-render.yaml                        Render Blueprint (web service + Postgres)
+render.yaml                        Render Blueprint (web service, free tier)
 tests/                             Agent contract tests
 ```
 
@@ -107,12 +117,13 @@ All config is via env vars; copy `.env.example` to `.env` and edit.
 | Var | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `SHOPIFY_STORE_DOMAIN` | _(unset)_ | If set, the agent calls Shopify Storefront MCP instead of the local catalog |
+| `SHOPIFY_STORE_DOMAIN` | _(unset)_ | If set, the agent calls Shopify Storefront MCP instead of the seed catalog |
+| `DATABASE_URL` | _(unset)_ | Postgres URL. When set: caches Shopify search responses, persists `chat_sessions` / `chat_intents` / `orders`. When unset: all DB ops silently no-op |
+| `CATALOG_CACHE_TTL_SECONDS` | `3600` | How long a Shopify search response stays "fresh" in the cache before triggering a refetch |
 | `KESTRA_URL` | `http://localhost:8080` | Kestra base URL |
 | `KESTRA_NAMESPACE` | `demo.commerce` | Kestra namespace for the demo flows |
 | `KESTRA_FLOW_ID` | `chat-commerce-order-fulfillment` | Post-order flow ID |
 | `KESTRA_RADAR_FLOW_ID` | `campus-demand-radar` | Demand radar flow ID |
-| `DATABASE_URL` | _(unset)_ | Postgres URL — reserved for when MCP tools persist to DB |
 
 ## Deploy
 
@@ -137,8 +148,8 @@ The Dockerfile is platform-agnostic. Set `PORT` and (optionally) `SHOPIFY_STORE_
 ## Where to extend
 
 - Swap the deterministic intent classifier in `commerce_agent.py` for an LLM planner.
-- Wire the local MCP tools to Postgres via `DATABASE_URL` and `psycopg`.
 - Persist Shopify cart IDs across chat turns so cart state survives reloads.
+- Promote the per-query cache to per-product (cache by SKU/variant ID with a separate query→IDs index) for higher reuse.
 - Add identity, promotions, returns, recommendations, and payment-provider mocks.
 - Generalize the radar beyond campus — events + weather + intent works for any geo-bound retailer.
 

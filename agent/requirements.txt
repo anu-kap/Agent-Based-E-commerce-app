@@ -1,4 +1,5 @@
-# Optional: enables the real LangGraph StateGraph path in the agent.
-# The agent runs the same graph through a deterministic fallback if this
-# is not installed, so it is safe to skip for minimal demos.
+# Optional dependencies. The agent runs without either: it falls back
+# to a deterministic graph if langgraph is missing, and silently skips
+# all DB ops if psycopg is missing or DATABASE_URL is unset.
 langgraph>=0.2.60
+psycopg[binary]>=3.2.3

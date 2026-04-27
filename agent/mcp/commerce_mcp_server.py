@@ -11,7 +11,11 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
-CATALOG_PATH = ROOT / "data" / "catalog.json"
+sys.path.insert(0, str(ROOT))
+
+from agent import db  # noqa: E402  -- optional Postgres cache + persistence
+
+SEED_CATALOG_PATH = ROOT / "data" / "seed_catalog.json"
 SHOPIFY_STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "").replace("https://", "").replace("http://", "").strip("/")
 KESTRA_URL = os.getenv("KESTRA_URL", "http://localhost:8080").rstrip("/")
 KESTRA_NAMESPACE = os.getenv("KESTRA_NAMESPACE", "demo.commerce")
@@ -19,10 +23,11 @@ KESTRA_FLOW_ID = os.getenv("KESTRA_FLOW_ID", "chat-commerce-order-fulfillment")
 KESTRA_RADAR_FLOW_ID = os.getenv("KESTRA_RADAR_FLOW_ID", "campus-demand-radar")
 COE_EVENTS_URL = "https://www.coe.edu/why-coe/events/calendar"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast?latitude=41.9779&longitude=-91.6656&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&timezone=America%2FChicago&forecast_days=7"
+CACHE_TTL_SECONDS = int(os.getenv("CATALOG_CACHE_TTL_SECONDS", "3600"))
 
 
-def catalog():
-    return json.loads(CATALOG_PATH.read_text())
+def seed_catalog():
+    return json.loads(SEED_CATALOG_PATH.read_text())
 
 
 def post_json(url, payload, headers=None, timeout=12):
@@ -173,29 +178,70 @@ def search_shopify_catalog(query):
     return products[:5]
 
 
-def search_catalog(query="", max_price=None, tags=None):
-    if SHOPIFY_STORE_DOMAIN:
-        return search_shopify_catalog(query)
+def _cache_key(query, max_price, tags):
+    return json.dumps(
+        {
+            "shop": SHOPIFY_STORE_DOMAIN or "seed",
+            "q": str(query or "").lower().strip(),
+            "max_price": max_price if max_price is not None else None,
+            "tags": sorted(tag.lower() for tag in (tags or [])),
+        },
+        sort_keys=True,
+    )
 
+
+def _search_seed_catalog(query, max_price, tags):
     terms = {term.lower() for term in str(query).replace(",", " ").split() if len(term) > 2}
     desired_tags = {tag.lower() for tag in (tags or [])}
     results = []
 
-    for item in catalog():
+    for item in seed_catalog():
         haystack = " ".join([
             item["name"],
             item["category"],
             item["description"],
-            " ".join(item["tags"])
+            " ".join(item["tags"]),
         ]).lower()
         if max_price is not None and item["price"] > float(max_price):
             continue
         score = sum(1 for term in terms if term in haystack)
         score += sum(2 for tag in desired_tags if tag in item["tags"])
         if score or not terms:
-            results.append({**item, "matchScore": score})
+            results.append({**item, "matchScore": score, "source": "seed"})
 
     return sorted(results, key=lambda item: (-item["matchScore"], -item["rating"], item["price"]))[:5]
+
+
+def search_catalog(query="", max_price=None, tags=None):
+    """Find products. Live Shopify (when configured) is primary, with a
+    Postgres cache in front and the seed catalog as last-resort fallback.
+
+    Order of attempts when SHOPIFY_STORE_DOMAIN is set:
+      1. Fresh cache hit (< CATALOG_CACHE_TTL_SECONDS)
+      2. Shopify Storefront MCP (writes the response to cache on success)
+      3. Stale cache (any age) if Shopify is unreachable
+      4. Seed catalog (data/seed_catalog.json)
+
+    With no SHOPIFY_STORE_DOMAIN, the seed catalog is the source of truth.
+    """
+    key = _cache_key(query, max_price, tags)
+
+    if SHOPIFY_STORE_DOMAIN:
+        cached, _ = db.cache_get(key, max_age_seconds=CACHE_TTL_SECONDS)
+        if cached is not None:
+            return cached
+        try:
+            products = search_shopify_catalog(query)
+            if products:
+                db.cache_put(key, products)
+                return products
+        except Exception:
+            pass
+        stale = db.cache_get_stale(key)
+        if stale:
+            return stale
+
+    return _search_seed_catalog(query, max_price, tags)
 
 
 def cart_quote(items):
@@ -218,7 +264,7 @@ def cart_quote(items):
             "lines": lines
         }
 
-    by_sku = {item["sku"]: item for item in catalog()}
+    by_sku = {item["sku"]: item for item in seed_catalog()}
     lines = []
     subtotal = 0
     for entry in items:
@@ -276,17 +322,19 @@ def trigger_kestra(order_id, total, workflow_event, cart_id="", checkout_url="",
         return {"status": "unavailable", "reason": str(exc), "url": KESTRA_URL, "workflowEvent": workflow_event, "flowId": flow_id}
 
 
-def create_order(items, shipping_method="standard"):
+def create_order(items, shipping_method="standard", session_id="demo"):
     quote = cart_quote(items)
-    total = quote.get("total", 0)
     order_id = "ORD-DEMO-1001" if quote.get("source") != "shopify" else f"SHOPIFY-CART-{uuid.uuid4().hex[:8].upper()}"
-    return {
+    order = {
         "orderId": order_id,
         "status": "created",
         "shippingMethod": shipping_method,
         "quote": quote,
-        "kestraWorkflow": KESTRA_FLOW_ID
+        "kestraWorkflow": KESTRA_FLOW_ID,
     }
+    if quote.get("source") != "shopify":
+        db.save_order(order, session_id=session_id)
+    return order
 
 
 def post_order_automation(order=None, cart=None, session_id="demo"):
