@@ -3,29 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agentic Commerce Chat</title>
+    <title>Storefront Concierge</title>
+    <meta name="description" content="Chat-based shopping concierge and campus demand radar for Shopify storefronts. LangGraph agent + MCP tools + optional Kestra workflows." />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
-      <section class="workspace" aria-label="Agentic commerce workspace">
+      <section class="workspace" aria-label="Storefront Concierge workspace">
         <aside class="rail" aria-label="System status">
           <div>
-            <p class="eyebrow">Campus Store Concierge</p>
-            <h1>Turn school spirit intent into Shopify carts.</h1>
+            <p class="eyebrow">Storefront Concierge</p>
+            <h1>Chat your Shopify catalog into a cart.</h1>
+            <p class="rail-subtitle">Showcase store: <strong>The Kohawk Shop</strong> &mdash; Coe College</p>
           </div>
           <div class="stack">
             <div class="status">
               <span class="dot"></span>
-              <span>Live Kohawk Shop catalog via Shopify MCP</span>
+              <span>Live Shopify Storefront MCP catalog &amp; cart</span>
             </div>
             <div class="status">
               <span class="dot"></span>
-              <span>Product cards, prices, images, cart actions</span>
+              <span>LangGraph agent with deterministic fallback</span>
             </div>
             <div class="status">
               <span class="dot muted"></span>
-              <span>Kestra for post-order merchant workflows</span>
+              <span>Campus Demand Radar &rarr; Kestra workflow</span>
             </div>
           </div>
           <div class="metrics">
@@ -38,7 +40,7 @@
         <section class="chat-panel">
           <header class="chat-header">
             <div>
-              <p class="eyebrow">Live Campus Store Demo</p>
+              <p class="eyebrow">Live Demo</p>
               <h2>The Kohawk Shop concierge</h2>
             </div>
             <button id="reset" type="button" title="Reset conversation">Reset</button>
@@ -69,6 +71,6 @@
         </section>
       </section>
     </main>
-    <script src="/app.js?v=radar-scroll-2" type="module"></script>
+    <script src="/app.js?v=0.2.0" type="module"></script>
   </body>
 </html>

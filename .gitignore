@@ -3,6 +3,11 @@ node_modules/
 __pycache__/
 *.pyc
 .env
+.env.local
 .DS_Store
 postgres-data/
 kestra-data/
+.idea/
+.vscode/
+*.log
+coverage/

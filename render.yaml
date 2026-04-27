@@ -1,0 +1,38 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy with: New + Blueprint, point at this repo. Render reads this file
+# and provisions the web service plus a managed Postgres database.
+#
+# Kestra is intentionally NOT defined here. Kestra wants 2GB+ RAM and
+# Postgres-backed queues, which is more than Render's starter tier offers.
+# Run Kestra locally with `docker compose up kestra` to demo the workflow
+# triggers; the app degrades gracefully to "Kestra unavailable" otherwise.
+services:
+  - type: web
+    name: storefront-concierge
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: SHOPIFY_STORE_DOMAIN
+        value: thekohawkshop.com
+      - key: KESTRA_URL
+        value: http://localhost:8080
+      - key: KESTRA_NAMESPACE
+        value: demo.commerce
+      - key: KESTRA_FLOW_ID
+        value: chat-commerce-order-fulfillment
+      - key: KESTRA_RADAR_FLOW_ID
+        value: campus-demand-radar
+      - key: DATABASE_URL
+        fromDatabase:
+          name: storefront-concierge-db
+          property: connectionString
+
+databases:
+  - name: storefront-concierge-db
+    plan: free
+    databaseName: commerce
+    user: commerce

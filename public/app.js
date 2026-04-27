@@ -297,7 +297,7 @@ reset.addEventListener("click", () => {
   messages.textContent = "";
   addMessage(
     "agent",
-    "Fresh campus-store session started. Tell me who you are shopping for, the occasion, size, budget, or pickup timing.",
+    "Fresh session started. Tell me who you are shopping for, the occasion, size, budget, or pickup timing — or ask me to run a campus demand scan.",
     ["session.reset"]
   );
 });
@@ -308,6 +308,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can help parents, alumni, students, and fans find the right Coe College gear, build a real Shopify cart, and run a campus demand radar that mashes up events, weather, shopper intent, and Shopify inventory.",
+  "Hi! I'm Storefront Concierge. I can search a live Shopify catalog, build a cart, and run a Campus Demand Radar that mashes up campus events, weather, recent shopper intent, and live inventory to recommend what to feature this week. Try one of the prompts below to start.",
   ["agent.ready", "shopify.mcp.live", "kestra.radar.ready"]
 );

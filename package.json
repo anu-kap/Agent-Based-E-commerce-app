@@ -1,8 +1,8 @@
 {
-  "name": "agentic-commerce-chat",
-  "version": "0.1.0",
+  "name": "storefront-concierge",
+  "version": "0.2.0",
   "private": true,
-  "description": "Demoable chat-based ecommerce experience using NodeJS, Python/LangGraph, MCP-style tools, Postgres, and Kestra.",
+  "description": "Chat-based shopping concierge and campus demand radar for Shopify storefronts. Node + Python LangGraph + MCP tools + optional Kestra workflows.",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
@@ -12,5 +12,10 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pk-sk-25/storefront-concierge.git"
   }
 }

@@ -1,13 +1,28 @@
 #!/usr/bin/env python3
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, TypedDict
 
 ROOT = Path(__file__).resolve().parents[1]
-MCP_SERVER = ROOT / "agent" / "mcp" / "commerce_mcp_server.py"
+sys.path.insert(0, str(ROOT))
+
+from agent.mcp.commerce_mcp_server import (  # noqa: E402
+    search_catalog,
+    cart_quote,
+    create_order,
+    post_order_automation,
+    campus_demand_radar,
+)
+
+TOOLS = {
+    "search_catalog": search_catalog,
+    "cart_quote": cart_quote,
+    "create_order": create_order,
+    "post_order_automation": post_order_automation,
+    "campus_demand_radar": campus_demand_radar,
+}
 
 
 class CommerceState(TypedDict, total=False):
@@ -27,26 +42,10 @@ class CommerceState(TypedDict, total=False):
 
 
 def mcp_call(name: str, arguments: Dict[str, Any]) -> Any:
-    process = subprocess.Popen(
-        [sys.executable, str(MCP_SERVER)],
-        cwd=str(ROOT),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-    requests = [
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
-    ]
-    stdout, stderr = process.communicate("\n".join(json.dumps(item) for item in requests) + "\n", timeout=25)
-    if process.returncode not in (0, None):
-        raise RuntimeError(stderr)
-    lines = [json.loads(line) for line in stdout.splitlines() if line.strip()]
-    response = lines[-1]
-    if "error" in response:
-        raise RuntimeError(response["error"]["message"])
-    return response["result"]["content"][0]["json"]
+    handler = TOOLS.get(name)
+    if not handler:
+        raise RuntimeError(f"Unknown tool: {name}")
+    return handler(**arguments)
 
 
 def classify(state: CommerceState) -> CommerceState:

@@ -96,7 +96,7 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, service: "agentic-commerce-chat" }));
+      res.end(JSON.stringify({ ok: true, service: "storefront-concierge" }));
       return;
     }
 
@@ -141,5 +141,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`Agentic commerce chat running at http://localhost:${port}`);
+  console.log(`Storefront Concierge running at http://localhost:${port}`);
 });
