@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, TypedDict
+
+SHOPIFY_STORE_DOMAIN = os.getenv("SHOPIFY_STORE_DOMAIN", "").strip()
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -198,10 +201,17 @@ def compose_reply(state: CommerceState) -> CommerceState:
             )
             reply = f"Best match: {top['name']} at {currency} ${top.get('price', 0):g}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
     else:
-        reply = (
-            "I could not find a strong match in the connected catalog. "
-            "For the Shopify demo store, try t-shirt, mug, business card, backpack, phone case, or wedding invitation."
-        )
+        if SHOPIFY_STORE_DOMAIN:
+            reply = (
+                f"No matches in the live {SHOPIFY_STORE_DOMAIN} catalog for that. "
+                "Try a broader keyword like t-shirt, mug, hoodie, backpack, or alumni gift."
+            )
+        else:
+            reply = (
+                "I could not find a match in the seed catalog. "
+                "Try trail shoes, rain jacket, hiking boot, daypack, or merino socks. "
+                "To search the live Kohawk Shop instead, restart with SHOPIFY_STORE_DOMAIN=thekohawkshop.com."
+            )
 
     return {**state, "reply": reply, "trace": state.get("trace", []) + ["compose_response"]}
 

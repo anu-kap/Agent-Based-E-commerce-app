@@ -232,13 +232,17 @@ def search_catalog(query="", max_price=None, tags=None):
             return cached
         try:
             products = search_shopify_catalog(query)
-            if products:
-                db.cache_put(key, products)
-                return products
+            # Honor whatever Shopify returns, including [] — an empty
+            # result is a legitimate "store has no match" answer, not a
+            # signal to substitute seed data. We cache it too, so repeat
+            # misses don't hammer Shopify.
+            db.cache_put(key, products)
+            return products
         except Exception:
             pass
+        # Only on Shopify failure do we degrade to stale cache or seed.
         stale = db.cache_get_stale(key)
-        if stale:
+        if stale is not None:
             return stale
 
     return _search_seed_catalog(query, max_price, tags)
