@@ -116,15 +116,19 @@ All config is via env vars; copy `.env.example` to `.env` and edit.
 
 ## Deploy
 
-### Render (one-click via Blueprint)
+### Render (one-click via Blueprint, free tier)
 
 1. Push this repo to GitHub.
-2. In Render, **New → Blueprint** and point at the repo. It will read [`render.yaml`](./render.yaml) and provision the web service plus a managed Postgres database.
-3. Wait ~5 min for the first build. The service comes up at `https://storefront-concierge.onrender.com` (or your assigned subdomain).
+2. In Render, **New → Blueprint** and point at the repo. It reads [`render.yaml`](./render.yaml) and provisions a free web service running this Dockerfile.
+3. Wait ~5–8 min for the first build. The service comes up at `https://storefront-concierge.onrender.com` (or your assigned subdomain).
 
 The blueprint sets `SHOPIFY_STORE_DOMAIN=thekohawkshop.com` so the deployed demo runs in live-Shopify mode out of the box. Override or unset that env var in the Render dashboard to switch to the local catalog.
 
-**Kestra is not included in the deploy.** Kestra wants ~2GB RAM and Postgres-backed queues — too much for Render's starter tier. Run it locally with `docker compose up kestra` to demo the workflow trigger end-to-end. The deployed app degrades cleanly to "Kestra workflow ready but not running" when Kestra is unreachable.
+**Free-tier tradeoff:** the service spins down after 15 minutes of inactivity and cold-starts in ~30s on the next request. Upgrade to Render's `starter` plan ($7/mo) for always-on if you're sharing the demo broadly.
+
+**Postgres is not in the blueprint.** The app does not read from a database today (the schema lives in `db/init/` for when MCP tools start persisting). Render's free Postgres still requires payment info on file, so the blueprint omits it. Add one later from the dashboard if you need it.
+
+**Kestra is also not deployed.** Kestra wants ~2GB RAM and Postgres-backed queues — too much for Render's free or starter tier. Run it locally with `docker compose up kestra` to demo the workflow trigger end-to-end. The deployed app degrades cleanly to "Kestra workflow ready but not running" when Kestra is unreachable.
 
 ### Railway / Fly.io / any Docker host
 

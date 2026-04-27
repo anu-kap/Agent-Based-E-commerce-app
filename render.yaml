@@ -1,16 +1,24 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
-# Deploy with: New + Blueprint, point at this repo. Render reads this file
-# and provisions the web service plus a managed Postgres database.
+# Deploy with: New + Blueprint, point at this repo.
 #
-# Kestra is intentionally NOT defined here. Kestra wants 2GB+ RAM and
-# Postgres-backed queues, which is more than Render's starter tier offers.
-# Run Kestra locally with `docker compose up kestra` to demo the workflow
-# triggers; the app degrades gracefully to "Kestra unavailable" otherwise.
+# Free tier notes:
+# - The web service uses Render's free plan: 512MB RAM, 0.1 CPU, no
+#   credit card required. It spins down after 15 minutes of inactivity
+#   and cold-starts in ~30s on the next request. Fine for a portfolio
+#   demo; upgrade to `starter` if you need always-on.
+# - Postgres is intentionally NOT defined here. The app does not read
+#   from a database today (schema lives in db/init/ for when MCP tools
+#   start persisting). Add a Render Postgres later from the dashboard
+#   if you need one — Render's free Postgres requires payment info on
+#   file even though it costs $0.
+# - Kestra is also not deployed (needs 2GB+ RAM + Postgres-backed
+#   queues). Run `docker compose up kestra` locally to demo the
+#   workflow trigger; the app reports "Kestra unavailable" otherwise.
 services:
   - type: web
     name: storefront-concierge
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -26,13 +34,3 @@ services:
         value: chat-commerce-order-fulfillment
       - key: KESTRA_RADAR_FLOW_ID
         value: campus-demand-radar
-      - key: DATABASE_URL
-        fromDatabase:
-          name: storefront-concierge-db
-          property: connectionString
-
-databases:
-  - name: storefront-concierge-db
-    plan: free
-    databaseName: commerce
-    user: commerce
