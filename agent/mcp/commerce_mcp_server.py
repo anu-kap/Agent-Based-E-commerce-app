@@ -93,35 +93,64 @@ def normalize_price(value):
     if isinstance(value, str):
         value = value.replace("$", "").replace(",", "")
     try:
-        return float(value)
+        price = float(value)
+        return price / 100 if price >= 1000 else price
     except (TypeError, ValueError):
         return 0
+
+
+def normalize_description(value):
+    if isinstance(value, dict):
+        return first_present(value, "html", "text", default="")
+    return value or ""
+
+
+def media_url(source):
+    media = source.get("media") if isinstance(source, dict) else None
+    if isinstance(media, list) and media:
+        return first_present(media[0], "url", "src", default="")
+    image = first_present(source, "image_url", "imageUrl", "featuredImage", default="")
+    if isinstance(image, dict):
+        return first_present(image, "url", "src", default="")
+    return image
 
 
 def normalize_shopify_product(item):
     variants = item.get("variants") if isinstance(item.get("variants"), list) else []
     variant = variants[0] if variants else {}
-    price = normalize_price(first_present(item, "price", "priceRange", "amount", default=first_present(variant, "price", default=0)))
+    price_range = first_present(item, "price_range", "priceRange", default={})
+    min_price = first_present(price_range, "min", "minimum", default={})
+    price = normalize_price(first_present(item, "price", "amount", default=first_present(variant, "price", default=min_price)))
     variant_id = first_present(item, "variant_id", "variantId", "merchandise_id", "merchandiseId", default=first_present(variant, "id", "variant_id"))
+    currency = first_present(item, "currency", "currencyCode", default=first_present(first_present(variant, "price", default={}), "currency", "currencyCode", default=first_present(min_price, "currency", default="")))
     return {
         "sku": variant_id or first_present(item, "id", "product_id", "productId", default="SHOPIFY-RESULT"),
         "name": first_present(item, "name", "title", default="Shopify product"),
         "category": first_present(item, "productType", "category", default="shopify"),
         "price": price,
-        "currency": first_present(item, "currency", "currencyCode", default=""),
+        "currency": currency,
         "inventory": first_present(item, "availableForSale", "inventory", default="available"),
         "rating": first_present(item, "rating", default=""),
         "tags": first_present(item, "tags", default=[]),
-        "description": first_present(item, "description", "descriptionHtml", default=""),
+        "description": normalize_description(first_present(item, "description", "descriptionHtml", default="")),
         "url": first_present(item, "url", "onlineStoreUrl", "productUrl", default=""),
-        "imageUrl": first_present(item, "image_url", "imageUrl", "featuredImage", default=""),
+        "imageUrl": media_url(item) or media_url(variant),
         "source": "shopify",
         "raw": item
     }
 
 
 def search_shopify_catalog(query):
-    response = shopify_mcp_call("search_shop_catalog", {"query": query, "context": "Customer is shopping through an AI commerce assistant."})
+    try:
+        response = shopify_mcp_call("search_catalog", {
+            "catalog": {
+                "query": query,
+                "context": {"intent": "Customer is shopping through an AI commerce assistant.", "currency": "USD"},
+                "pagination": {"limit": 5}
+            }
+        })
+    except RuntimeError:
+        response = shopify_mcp_call("search_shop_catalog", {"query": query, "context": "Customer is shopping through an AI commerce assistant."})
     payload = content_payload(response)
     products = [normalize_shopify_product(item) for item in collect_product_like(payload)]
     return products[:5] if products else [{"name": "Shopify MCP response", "description": json.dumps(payload)[:900], "source": "shopify", "price": 0, "sku": "SHOPIFY-RAW"}]
@@ -158,14 +187,17 @@ def cart_quote(items):
         for item in items:
             merchandise_id = item.get("merchandise_id") or item.get("sku")
             if merchandise_id:
-                lines.append({"merchandise_id": merchandise_id, "quantity": int(item.get("quantity", 1))})
-        response = shopify_mcp_call("update_cart", {"lines": lines})
+                lines.append({"product_variant_id": merchandise_id, "quantity": int(item.get("quantity", 1))})
+        response = shopify_mcp_call("update_cart", {"add_items": lines})
         payload = content_payload(response)
+        cart = payload.get("cart", payload) if isinstance(payload, dict) else {}
+        cost = first_present(cart, "cost", default={})
+        total_amount = first_present(cost, "total_amount", "totalAmount", default={})
         return {
             "source": "shopify",
-            "cart": payload,
-            "checkoutUrl": first_present(payload, "checkoutUrl", "checkout_url", "checkoutUrl", default=""),
-            "total": normalize_price(first_present(payload, "totalAmount", "total", "cost", default=0)),
+            "cart": cart,
+            "checkoutUrl": first_present(cart, "checkoutUrl", "checkout_url", default=""),
+            "total": normalize_price(first_present(total_amount, "amount", default=first_present(cart, "totalAmount", "total", default=0))),
             "lines": lines
         }
 
