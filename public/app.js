@@ -6,10 +6,103 @@ const suggestions = document.querySelectorAll(".suggestions button");
 
 let sessionId = crypto.randomUUID();
 
-function addMessage(role, text, trace = []) {
+function formatMoney(product) {
+  const currency = product.currency || "USD";
+  const price = Number(product.price || 0);
+  return `${currency} $${price.toFixed(price % 1 === 0 ? 0 : 2)}`;
+}
+
+function addProductCards(container, products = []) {
+  const usableProducts = products.filter((product) => product && product.sku && product.name && product.price !== undefined);
+  if (!usableProducts.length) return;
+
+  const grid = document.createElement("div");
+  grid.className = "product-grid";
+
+  for (const product of usableProducts.slice(0, 4)) {
+    const card = document.createElement("article");
+    card.className = "product-card";
+
+    if (product.imageUrl) {
+      const image = document.createElement("img");
+      image.src = product.imageUrl;
+      image.alt = product.name;
+      image.loading = "lazy";
+      card.append(image);
+    }
+
+    const body = document.createElement("div");
+    body.className = "product-body";
+
+    const title = document.createElement("h3");
+    title.textContent = product.name;
+    body.append(title);
+
+    const price = document.createElement("p");
+    price.className = "product-price";
+    price.textContent = formatMoney(product);
+    body.append(price);
+
+    if (product.description) {
+      const description = document.createElement("p");
+      description.className = "product-description";
+      description.textContent = product.description.replace(/<[^>]*>/g, "");
+      body.append(description);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "product-actions";
+
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = "Add";
+    add.title = `Add ${product.name} to cart`;
+    add.addEventListener("click", () => {
+      sendMessage(`Add ${product.name} to my cart`, { selectedSku: product.sku });
+    });
+    actions.append(add);
+
+    if (product.url) {
+      const link = document.createElement("a");
+      link.href = product.url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "View";
+      actions.append(link);
+    }
+
+    body.append(actions);
+    card.append(body);
+    grid.append(card);
+  }
+
+  container.append(grid);
+}
+
+function addCheckoutLink(container, order = {}) {
+  const checkoutUrl = order.quote?.checkoutUrl;
+  if (!checkoutUrl) return;
+
+  const link = document.createElement("a");
+  link.className = "checkout-link";
+  link.href = checkoutUrl;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = "Open Shopify checkout";
+  container.append(link);
+}
+
+function addMessage(role, text, trace = [], meta = {}) {
   const bubble = document.createElement("article");
   bubble.className = `message ${role}`;
   bubble.textContent = text;
+
+  if (role === "agent") {
+    if ((meta.trace || []).includes("mcp.search_catalog")) {
+      addProductCards(bubble, meta.products || []);
+    }
+    addCheckoutLink(bubble, meta.order || {});
+  }
 
   if (trace.length) {
     const traceEl = document.createElement("div");
@@ -26,7 +119,7 @@ function addMessage(role, text, trace = []) {
   messages.scrollTop = messages.scrollHeight;
 }
 
-async function sendMessage(text) {
+async function sendMessage(text, extraPayload = {}) {
   addMessage("user", text);
   input.value = "";
   input.disabled = true;
@@ -35,13 +128,13 @@ async function sendMessage(text) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: text, sessionId })
+      body: JSON.stringify({ message: text, sessionId, ...extraPayload })
     });
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || "Chat request failed");
     }
-    addMessage("agent", result.reply, result.trace || []);
+    addMessage("agent", result.reply, result.trace || [], result);
   } catch (error) {
     addMessage("agent", `I hit an execution error: ${error.message}`);
   } finally {

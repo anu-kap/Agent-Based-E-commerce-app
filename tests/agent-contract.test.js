@@ -40,3 +40,14 @@ test("agent can add the best prior search result to cart", async () => {
   assert.match(cart.reply, /I added Northline Waterproof Trail Shoe to the cart/);
   assert.equal(cart.cart[0].sku, "RUN-TRAIL-01");
 });
+
+test("agent can add a selected product from prior results", async () => {
+  const search = await runAgent("Find waterproof trail shoes under $150");
+  const selected = search.products.find((product) => product.sku === "JKT-RAIN-05");
+  const cart = await runAgent(`Add ${selected.name} to my cart`, {
+    products: search.products,
+    selectedSku: selected.sku
+  });
+  assert.match(cart.reply, /I added Cloudbreak Rain Shell to the cart/);
+  assert.equal(cart.cart[0].sku, "JKT-RAIN-05");
+});

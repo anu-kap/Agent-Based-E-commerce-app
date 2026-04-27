@@ -13,6 +13,7 @@ MCP_SERVER = ROOT / "agent" / "mcp" / "commerce_mcp_server.py"
 class CommerceState(TypedDict, total=False):
     message: str
     sessionId: str
+    selectedSku: str
     intent: str
     constraints: Dict[str, Any]
     products: List[Dict[str, Any]]
@@ -74,7 +75,9 @@ def update_cart(state: CommerceState) -> CommerceState:
     products = state.get("products") or mcp_call("search_catalog", {"query": state["message"], "tags": []})
     if not products:
         products = mcp_call("search_catalog", {"query": "", "tags": []})
-    selected = products[0] if products else None
+    selected_sku = state.get("selectedSku")
+    selected = next((product for product in products if product.get("sku") == selected_sku), None) if selected_sku else None
+    selected = selected or (products[0] if products else None)
     cart = [{"sku": selected["sku"], "quantity": 1}] if selected else []
     quote = mcp_call("cart_quote", {"items": cart}) if cart else {"lines": [], "total": 0}
     return {**state, "products": products, "cart": cart, "order": {"quote": quote}, "trace": state.get("trace", []) + ["mcp.cart_quote"]}
@@ -117,7 +120,7 @@ def compose_reply(state: CommerceState) -> CommerceState:
             checkout_url = quote.get("checkoutUrl")
             reply = f"I updated the Shopify cart. Estimated total is ${quote.get('total', 0):.2f}."
             if checkout_url:
-                reply += f" Checkout URL: {checkout_url}"
+                reply += " Use the checkout button when you are ready."
         elif quote.get("lines"):
             line = quote["lines"][0]
             reply = (
@@ -196,6 +199,7 @@ def main():
     result = run_langgraph({
         "message": message,
         "sessionId": payload.get("sessionId", "demo"),
+        "selectedSku": payload.get("selectedSku", ""),
         "products": payload.get("products", []),
         "cart": payload.get("cart", []),
         "order": payload.get("order", {}),
