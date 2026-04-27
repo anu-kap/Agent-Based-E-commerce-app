@@ -38,6 +38,11 @@ function addProductCards(container, products = []) {
     title.textContent = product.name;
     body.append(title);
 
+    const meta = document.createElement("p");
+    meta.className = "product-meta";
+    meta.textContent = product.inventory === "available" ? "Available now" : "Campus store item";
+    body.append(meta);
+
     const price = document.createElement("p");
     price.className = "product-price";
     price.textContent = formatMoney(product);
@@ -151,8 +156,11 @@ function addMessage(role, text, trace = [], meta = {}) {
   }
 
   if (trace.length) {
-    const traceEl = document.createElement("div");
+    const traceEl = document.createElement("details");
     traceEl.className = "trace";
+    const summary = document.createElement("summary");
+    summary.textContent = "Agent trace";
+    traceEl.append(summary);
     for (const item of trace) {
       const chip = document.createElement("span");
       chip.textContent = item;
@@ -200,7 +208,7 @@ reset.addEventListener("click", () => {
   messages.textContent = "";
   addMessage(
     "agent",
-    "Fresh shopping session started. Tell me what you want, a budget, and any constraints.",
+    "Fresh campus-store session started. Tell me who you are shopping for, the occasion, size, budget, or pickup timing.",
     ["session.reset"]
   );
 });
@@ -211,6 +219,6 @@ for (const button of suggestions) {
 
 addMessage(
   "agent",
-  "Hi, I can guide campus-store shoppers to the right spirit gear, build a real Shopify cart, and then simulate post-order automation for the merchant. Try asking for a hoodie, alumni gift, hat, or mug.",
-  ["agent.ready", "mcp.tools.loaded"]
+  "Hi, I can help parents, alumni, students, and fans find the right Coe College gear, build a real Shopify cart, and show how paid orders flow into merchant operations. Try asking for a hoodie, alumni gift, hat, or mug.",
+  ["agent.ready", "shopify.mcp.live", "kestra.post_order.ready"]
 );

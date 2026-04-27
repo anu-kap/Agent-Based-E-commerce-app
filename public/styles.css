@@ -5,9 +5,9 @@
   --line: #d9e1e7;
   --panel: #ffffff;
   --canvas: #eef3f4;
-  --accent: #087f8c;
-  --accent-strong: #075f69;
-  --warm: #f2b84b;
+  --accent: #9a1b30;
+  --accent-strong: #6e1221;
+  --warm: #f1b84b;
   --success: #27845f;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -20,8 +20,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    linear-gradient(120deg, rgba(8, 127, 140, 0.12), transparent 36%),
-    linear-gradient(300deg, rgba(242, 184, 75, 0.16), transparent 32%),
+    linear-gradient(120deg, rgba(154, 27, 48, 0.12), transparent 36%),
+    linear-gradient(300deg, rgba(241, 184, 75, 0.16), transparent 32%),
     var(--canvas);
   color: var(--ink);
 }
@@ -39,10 +39,10 @@ input {
 }
 
 .workspace {
-  width: min(1120px, 100%);
+  width: min(1240px, 100%);
   min-height: min(760px, calc(100vh - 64px));
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(25, 32, 38, 0.12);
   box-shadow: 0 24px 80px rgba(25, 32, 38, 0.15);
@@ -54,7 +54,7 @@ input {
   justify-content: space-between;
   gap: 32px;
   padding: 34px;
-  background: #172126;
+  background: #25191b;
   color: #f8fbfb;
 }
 
@@ -175,7 +175,7 @@ h2 {
 }
 
 .message {
-  max-width: min(660px, 92%);
+  max-width: min(820px, 96%);
   padding: 14px 16px;
   border-radius: 8px;
   line-height: 1.45;
@@ -190,14 +190,14 @@ h2 {
 
 .message.agent {
   align-self: flex-start;
-  background: #edf4f5;
-  border: 1px solid #d8e7e9;
+  background: #fbf8f2;
+  border: 1px solid #eadfc9;
 }
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 14px;
   white-space: normal;
 }
@@ -205,7 +205,7 @@ h2 {
 .product-card {
   min-width: 0;
   display: grid;
-  grid-template-rows: 132px 1fr;
+  grid-template-rows: 154px 1fr;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -214,14 +214,14 @@ h2 {
 
 .product-card img {
   width: 100%;
-  height: 132px;
+  height: 154px;
   object-fit: cover;
   background: #f4f7f8;
 }
 
 .product-body {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   padding: 12px;
 }
 
@@ -233,6 +233,12 @@ h2 {
 .product-body h3 {
   font-size: 15px;
   line-height: 1.2;
+}
+
+.product-meta {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .product-price {
@@ -334,12 +340,20 @@ h2 {
 
 .trace {
   margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .trace span {
+  display: inline-flex;
+  margin: 6px 6px 0 0;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -419,5 +433,11 @@ h2 {
 
   .product-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 821px) and (max-width: 1080px) {
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

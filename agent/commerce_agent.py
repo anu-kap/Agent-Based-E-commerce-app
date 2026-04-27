@@ -159,11 +159,18 @@ def compose_reply(state: CommerceState) -> CommerceState:
     elif products:
         top = products[0]
         currency = top.get("currency") or "USD"
-        comparisons = "\n".join(
-            format_product_line(item)
-            for item in products[:3]
-        )
-        reply = f"Best match: {top['name']} at {currency} ${top.get('price', 0):g}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
+        if top.get("source") == "shopify":
+            reply = (
+                f"I found {len(products)} live Shopify items for that request. "
+                f"Best match is {top['name']} at {currency} ${top.get('price', 0):g}. "
+                "Pick a card to add it to the Shopify cart."
+            )
+        else:
+            comparisons = "\n".join(
+                format_product_line(item)
+                for item in products[:3]
+            )
+            reply = f"Best match: {top['name']} at {currency} ${top.get('price', 0):g}.\n\n{comparisons}\n\nI can add the best option to cart or compare these more closely."
     else:
         reply = (
             "I could not find a strong match in the connected catalog. "
