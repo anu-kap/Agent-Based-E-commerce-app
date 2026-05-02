@@ -16,6 +16,115 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  catalog-service:
+    build:
+      context: ./services/catalog-service
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      SEED_CATALOG_PATH: /app/data/seed_catalog.json
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data/seed_catalog.json:/app/data/seed_catalog.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+    ports:
+      - "8002:8002"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data/seed_catalog.json:/app/data/seed_catalog.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  order-service:
+    build:
+      context: ./services/order-service
+    ports:
+      - "8003:8003"
+    environment:
+      DATABASE_URL: postgresql://commerce:commerce@postgres:5432/commerce
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./db/init:/app/db/init:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      CATALOG_SERVICE_URL: http://catalog-service:8001
+      PAYMENT_SERVICE_URL: http://payment-service:8002
+      ORDER_SERVICE_URL: http://order-service:8003
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://commerce:commerce@postgres:5432/commerce
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./db/init:/app/db/init:ro
+    depends_on:
+      catalog-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  storefront-ui:
+    build:
+      context: ./storefront-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
   kestra:
     image: kestra/kestra:latest
     command: server standalone --worker-thread=32

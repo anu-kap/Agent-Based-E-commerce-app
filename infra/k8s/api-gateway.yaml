@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: acme-prod
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: "acme-gateway"
+    vault.hashicorp.com/agent-inject-secret-redis: "vault/prod/acme/redis"
+    vault.hashicorp.com/agent-inject-template-redis: |
+      {{ with secret "vault/prod/acme/redis" -}}
+      REDIS_URL={{ .Data.data.url }}
+      {{- end }}
+    vault.hashicorp.com/agent-inject-secret-postgres: "vault/prod/acme/postgres"
+    vault.hashicorp.com/agent-inject-template-postgres: |
+      {{ with secret "vault/prod/acme/postgres" -}}
+      DATABASE_URL={{ .Data.data.url }}
+      {{- end }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: ${ECR_REGISTRY}/acme/api-gateway:${IMAGE_TAG}
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: acme-config
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: acme-prod
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: acme-prod
+  annotations:
+    kubernetes.io/ingress.class: "kong"
+    konghq.com/plugins: "rate-limiting,cors,request-id"
+    konghq.com/strip-path: "false"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8000
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8000

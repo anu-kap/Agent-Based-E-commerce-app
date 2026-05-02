@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: acme-prod
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: "acme-order"
+    vault.hashicorp.com/agent-inject-secret-postgres: "vault/prod/acme/postgres"
+    vault.hashicorp.com/agent-inject-template-postgres: |
+      {{ with secret "vault/prod/acme/postgres" -}}
+      DATABASE_URL={{ .Data.data.url }}
+      {{- end }}
+    vault.hashicorp.com/agent-inject-secret-aws: "vault/prod/acme/aws"
+    vault.hashicorp.com/agent-inject-template-aws: |
+      {{ with secret "vault/prod/acme/aws" -}}
+      SQS_ORDER_EVENTS_URL={{ .Data.data.sqs_order_events_url }}
+      AWS_ACCESS_KEY_ID={{ .Data.data.access_key_id }}
+      AWS_SECRET_ACCESS_KEY={{ .Data.data.secret_access_key }}
+      {{- end }}
+    vault.hashicorp.com/agent-inject-secret-kestra: "vault/prod/acme/kestra"
+    vault.hashicorp.com/agent-inject-template-kestra: |
+      {{ with secret "vault/prod/acme/kestra" -}}
+      KESTRA_URL={{ .Data.data.url }}
+      {{- end }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+        - name: order-service
+          image: ${ECR_REGISTRY}/acme/order-service:${IMAGE_TAG}
+          ports:
+            - containerPort: 8003
+          envFrom:
+            - configMapRef:
+                name: acme-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-service
+  namespace: acme-prod
+spec:
+  selector:
+    app: order-service
+  ports:
+    - port: 8003
+      targetPort: 8003

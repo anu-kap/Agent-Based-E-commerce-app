@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-service
+  namespace: acme-prod
+  annotations:
+    vault.hashicorp.com/agent-inject: "true"
+    vault.hashicorp.com/role: "acme-catalog"
+    vault.hashicorp.com/agent-inject-secret-shopify: "vault/prod/acme/shopify"
+    vault.hashicorp.com/agent-inject-template-shopify: |
+      {{ with secret "vault/prod/acme/shopify" -}}
+      SHOPIFY_STORE_DOMAIN={{ .Data.data.store_domain }}
+      {{- end }}
+    vault.hashicorp.com/agent-inject-secret-redis: "vault/prod/acme/redis"
+    vault.hashicorp.com/agent-inject-template-redis: |
+      {{ with secret "vault/prod/acme/redis" -}}
+      REDIS_URL={{ .Data.data.url }}
+      {{- end }}
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-service
+  template:
+    metadata:
+      labels:
+        app: catalog-service
+    spec:
+      containers:
+        - name: catalog-service
+          image: ${ECR_REGISTRY}/acme/catalog-service:${IMAGE_TAG}
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: acme-config
+          env:
+            - name: SEED_CATALOG_PATH
+              value: /app/data/seed_catalog.json
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: seed-catalog
+              mountPath: /app/data
+      volumes:
+        - name: seed-catalog
+          configMap:
+            name: seed-catalog-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-service
+  namespace: acme-prod
+spec:
+  selector:
+    app: catalog-service
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: catalog-service-hpa
+  namespace: acme-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: catalog-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
