@@ -9,7 +9,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  S3_BUCKET: acme-storefront-ui
+  S3_BUCKET: acme-static
   CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
       - name: Build
         working-directory: storefront-ui
         env:
-          VITE_API_GATEWAY_URL: ""
+          VITE_API_GATEWAY_URL: ${{ secrets.API_GATEWAY_URL }}
         run: npm run build
 
       - name: Configure AWS credentials

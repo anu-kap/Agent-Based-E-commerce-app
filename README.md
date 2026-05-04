@@ -1,164 +1,378 @@
 # Storefront Concierge
 
-A chat-based shopping concierge and **Campus Demand Radar** for Shopify storefronts. The chat agent searches a live Shopify catalog over the [Storefront MCP](https://shopify.dev/docs/api/mcp), builds a real cart, and hands off to Shopify checkout. The Demand Radar mashes up campus events, weather, recent shopper intent, and live inventory to tell a merchant what to feature this week — and triggers a [Kestra](https://kestra.io) workflow to act on it.
+A chat-based shopping concierge and **Campus Demand Radar** for Shopify storefronts. Shoppers search a live Shopify catalog, build a real cart, and hand off to Shopify checkout. Merchants run a Demand Radar that mashes up campus events, weather, and shopper intent to surface what to feature this week — then triggers a Kestra workflow to act on it.
 
-> **Showcase store:** [The Kohawk Shop](https://thekohawkshop.com) (Coe College, Cedar Rapids, IA)
+> **Showcase store:** [The Kohawk Shop](https://thekohawkshop.com) — Coe College, Cedar Rapids IA
 
 ---
 
-## What this demonstrates
-
-- **An agentic chat surface that does real merchant work** — not a toy demo. Search → cart → checkout, all wired to a live Shopify store.
-- **MCP as a clean tool boundary.** The agent calls the same tool functions that an external MCP client (Claude Desktop, etc.) could call.
-- **A LangGraph state machine with a deterministic fallback.** The graph runs the same path whether `langgraph` is installed or not, so the demo always boots.
-- **Workflow handoff at the merchant layer.** Shopify owns checkout, payment, tax, and order creation. After `orders/paid`, Kestra picks up — fulfillment, comms, alerts, demand-radar reporting.
-- **A multi-source signal mash-up** the way real merchandising teams want it — public web (campus calendar) + weather + first-party intent + commerce inventory.
-
 ## Architecture
 
-```mermaid
-flowchart LR
-  user([Shopper / Merchant]) -->|"chat message"| web[Browser UI<br/>vanilla JS]
-  web -->|"POST /api/chat"| node[Node web server<br/>server.js]
-  node -->|"spawn + stdin JSON"| agent[Python LangGraph agent<br/>commerce_agent.py]
-  agent -->|"in-process import"| mcp[MCP tools<br/>commerce_mcp_server.py]
-  mcp -->|"JSON-RPC"| shopify[(Shopify Storefront MCP)]
-  mcp -->|"HTTP"| events[Coe events page]
-  mcp -->|"HTTP"| weather[Open-Meteo]
-  mcp -->|"cache + persist"| postgres[(Postgres)]
-  mcp -->|"HTTP POST"| kestra[(Kestra workflows)]
-  kestra --> postgres
+```
+CloudFront CDN ──► S3 (storefront-ui static files)
+                        │
+                        ▼
+               api-gateway :8000  (FastAPI + LangGraph)
+              /           |           \
+   catalog-service    payment-service  order-service
+      :8001               :8002            :8003
+   (FastAPI)           (FastAPI)        (FastAPI)
+        │                  │                │
+        ▼                  ▼                ▼
+   Redis (cache)      Redis (session)   Postgres (orders)
+                                            │
+                                        SQS queue ──► Kestra workflows
 ```
 
-**Catalog source-of-truth chain** (when `SHOPIFY_STORE_DOMAIN` is set):
-fresh Postgres cache (1h TTL) → Shopify Storefront MCP → stale Postgres cache → seed catalog. Postgres and Kestra are both optional; the app works with neither.
+**Services:**
 
-For a deeper walkthrough — sequence diagrams of the four user flows (search, cart, checkout, radar), the LangGraph node map, MCP tool contracts, and the design decisions behind the cache and fallback chain — see [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
-
-## What's real vs. what's mocked
-
-| Capability | Status | Notes |
+| Service | Port | Responsibility |
 |---|---|---|
-| Live Shopify catalog search | Real | `SHOPIFY_STORE_DOMAIN=thekohawkshop.com` calls Shopify's Storefront MCP |
-| Live Shopify cart + checkout URL | Real | Returned by the same MCP endpoint |
-| Postgres read-through cache | Real | When `DATABASE_URL` is set: 1h TTL on Shopify search responses; falls back to stale entries when Shopify hiccups |
-| Seed catalog (last-resort fallback) | Real | `data/seed_catalog.json` — used only when Shopify is unreachable AND cache is empty (or no `SHOPIFY_STORE_DOMAIN` is set at all) |
-| LangGraph state machine | Real if `langgraph` installed; otherwise deterministic fallback runs the same nodes |
-| Coe College events signal | Real | Scrapes the public events calendar |
-| Cedar Rapids weather signal | Real | Open-Meteo public API |
-| Shopper intent log | Real | Persisted to `chat_intents` when `DATABASE_URL` is set; falls back to in-memory log otherwise |
-| Local demo order persistence | Real | Persisted to `orders` table when `DATABASE_URL` is set |
-| Kestra post-order automation | Real workflow trigger; needs `docker compose up kestra` to actually run |
-| Shopify `orders/paid` webhook | **Simulated** by the "Simulate order paid" button — proves the handoff shape, not a real webhook |
+| storefront-ui | 3000 (local) / CloudFront (prod) | React + TypeScript chat UI |
+| api-gateway | 8000 | Intent classification, LangGraph agent, session management |
+| catalog-service | 8001 | Shopify MCP search with Redis cache + seed fallback |
+| payment-service | 8002 | Cart quoting and checkout |
+| order-service | 8003 | Order persistence (Postgres), SQS events, Kestra triggers |
 
-## Quick start
+**Infrastructure (production):**
+
+| Component | AWS Service | Purpose |
+|---|---|---|
+| Container hosting | EKS (Kubernetes) | Runs services across multiple nodes; auto-scales and self-heals |
+| Container images | ECR | Stores Docker images built by CI/CD |
+| Frontend hosting | S3 + CloudFront | Serves the React app globally from the CDN edge |
+| Order events | SQS FIFO | Async queue between order-service and downstream systems |
+| Database | RDS PostgreSQL | Orders, sessions, intent log |
+| Cache | ElastiCache Redis | Catalog search cache, session store |
+| Secrets | HashiCorp Vault | API keys and credentials (never hardcoded) |
+| Ingress | Kong | Rate limiting, CORS, request tracing at the cluster edge |
+
+---
+
+## Running locally
+
+All services run with Docker Compose. No AWS account needed.
 
 ```bash
-# (One-time) install Python deps so local dev runs the real LangGraph
-# state machine. The Docker image installs these automatically; this
-# is for local dev only. server.js auto-prefers .venv/bin/python3.
-python3 -m venv .venv && .venv/bin/pip install -r agent/requirements.txt
+# Copy env file and set your Shopify store
+cp .env.example .env
+# Edit .env: set SHOPIFY_STORE_DOMAIN=thekohawkshop.com (already set in .env.example)
 
-# 1. Seed-catalog mode (no external services, no DB)
-npm start
-# → http://localhost:3000
+# Start everything
+docker compose up --build
 
-# 2. Live Shopify mode (Kohawk Shop) — no DB cache, no persistence
-SHOPIFY_STORE_DOMAIN=thekohawkshop.com npm start
-
-# 3. Live Shopify + Postgres cache + intent/order persistence
-docker compose up -d postgres
-DATABASE_URL=postgresql://commerce:commerce@localhost:5432/commerce \
-  SHOPIFY_STORE_DOMAIN=thekohawkshop.com npm start
-# Schema auto-bootstraps from db/init/001_schema.sql on first DB call.
-
-# 4. Add Kestra on top for the full post-order + radar workflow demo
-docker compose up -d
-# Kestra UI at http://localhost:8080, Postgres at localhost:5432
+# UI:           http://localhost:3000
+# API gateway:  http://localhost:8000
+# API docs:     http://localhost:8000/docs
+# Kestra UI:    http://localhost:8080
 ```
 
 Try these prompts in the chat:
-
+- `Find a campus mug`
 - `Find a hoodie for an alum`
-- `Find waterproof trail shoes under $150` _(local catalog mode)_
 - `Add the best option to my cart`
 - `Checkout in Shopify`
-- `Run campus opportunity scan` ← the radar demo
-- `Simulate order paid` ← triggers the Kestra post-order workflow
+- `Run campus opportunity scan`
+- `Simulate order paid`
 
-### Run the agent from the terminal (no UI)
+**What works locally without any AWS setup:**
+
+| Capability | Local status |
+|---|---|
+| Shopify catalog search (live) | ✅ Real — calls thekohawkshop.com Shopify MCP |
+| Shopify cart + checkout URL | ✅ Real |
+| Redis session + catalog cache | ✅ Real — Docker Compose redis container |
+| Postgres order persistence | ✅ Real — Docker Compose postgres container |
+| Kestra post-order workflows | ✅ Real — Docker Compose kestra container |
+| SQS order events | Graceful no-op (logs a warning, continues) |
+| CloudFront CDN | N/A — nginx serves UI locally |
+| Vault secrets | N/A — env vars used directly locally |
+
+---
+
+## Deploying to AWS
+
+### Prerequisites
+
+Install these tools before starting:
 
 ```bash
-npm run agent:demo
+# AWS CLI
+brew install awscli
+aws configure   # enter your Access Key ID, Secret, and region: us-east-1
+
+# kubectl + eksctl (EKS management)
+brew install kubectl eksctl
+
+# Helm (installs Kong and Vault on the cluster)
+brew install helm
 ```
 
-### Tests
+Verify:
+```bash
+aws sts get-caller-identity   # should print your AWS account ID
+```
+
+---
+
+### Step 1 — Create AWS infrastructure
+
+Run these once. They provision the actual cloud resources.
 
 ```bash
-npm test
+# --- S3 bucket for the React UI + media assets ---
+aws s3 mb s3://acme-static --region us-east-1
+aws s3api put-public-access-block \
+  --bucket acme-static \
+  --public-access-block-configuration "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
+aws s3 website s3://acme-static \
+  --index-document index.html --error-document index.html
+
+# --- CloudFront distribution ---
+aws cloudfront create-distribution \
+  --origin-domain-name acme-static.s3-website-us-east-1.amazonaws.com \
+  --default-root-object index.html \
+  --query 'Distribution.{ID:Id,Domain:DomainName}' --output table
+# Note the Distribution ID — you'll need it for GitHub secrets
+
+# --- SQS FIFO queue for order events ---
+aws sqs create-queue \
+  --queue-name order-events.fifo \
+  --attributes FifoQueue=true,ContentBasedDeduplication=true \
+  --region us-east-1
+# Note the queue URL from the output
+
+# --- ECR repositories (one per service) ---
+for svc in catalog-service payment-service order-service api-gateway; do
+  aws ecr create-repository --repository-name acme/$svc --region us-east-1
+done
+
+# --- Get your account ID (needed for .env and GitHub secrets) ---
+aws sts get-caller-identity --query Account --output text
 ```
 
-The contract tests run the agent end-to-end against the local catalog path — no external services required.
+---
 
-## Project shape
+### Step 2 — Create the EKS cluster
+
+This provisions the actual servers that run your containers. Takes ~15 minutes.
+
+```bash
+eksctl create cluster \
+  --name acme-prod \
+  --region us-east-1 \
+  --node-type t3.medium \
+  --nodes 3 \
+  --nodes-min 2 \
+  --nodes-max 6
+
+# Verify nodes are ready
+kubectl get nodes
+```
+
+**What this creates:**
+- 3 EC2 servers (`t3.medium`, ~$100/month total) in us-east-1
+- Kubernetes control plane managed by AWS (~$73/month)
+- Auto-scaling configured between 2–6 nodes
+
+---
+
+### Step 3 — Install Kong and Vault on the cluster
+
+Kong is the traffic bouncer. Vault is the secrets safe. Both run inside the cluster.
+
+```bash
+# Kong Ingress Controller
+helm repo add kong https://charts.konghq.com
+helm repo update
+helm install kong kong/ingress -n kong --create-namespace
+
+# HashiCorp Vault
+helm repo add hashicorp https://helm.releases.hashicorp.com
+helm install vault hashicorp/vault -n vault --create-namespace \
+  --set "server.dev.enabled=true"
+
+# Wait for Vault to be ready
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=vault -n vault --timeout=120s
+
+# Seed Vault with secrets (replace placeholder values)
+kubectl exec -n vault vault-0 -- vault kv put vault/prod/acme/shopify \
+  store_domain=thekohawkshop.com
+
+kubectl exec -n vault vault-0 -- vault kv put vault/prod/acme/postgres \
+  url=postgresql://commerce:YOURPASSWORD@your-rds-endpoint:5432/commerce
+
+kubectl exec -n vault vault-0 -- vault kv put vault/prod/acme/redis \
+  url=redis://your-elasticache-endpoint:6379/0
+
+kubectl exec -n vault vault-0 -- vault kv put vault/prod/acme/aws \
+  sqs_order_events_url=https://sqs.us-east-1.amazonaws.com/ACCOUNT_ID/order-events.fifo \
+  aws_access_key_id=YOUR_KEY \
+  aws_secret_access_key=YOUR_SECRET
+```
+
+---
+
+### Step 4 — Configure GitHub secrets
+
+Go to your GitHub repo → **Settings → Secrets and variables → Actions** and add:
+
+| Secret name | Value |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | Your AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | Your AWS secret key |
+| `AWS_ACCOUNT_ID` | Your 12-digit AWS account ID |
+| `CLOUDFRONT_DISTRIBUTION_ID` | The distribution ID from Step 1 |
+| `API_GATEWAY_URL` | Public URL of your EKS load balancer, e.g. `https://abc.us-east-1.elb.amazonaws.com` — baked into the React build so the browser knows where to send API calls |
+
+These are used by the CI/CD workflows to push images to ECR, deploy to EKS, and sync the UI to S3.
+
+---
+
+### Step 5 — Deploy the services
+
+```bash
+# Create the acme-prod namespace
+kubectl apply -f infra/k8s/namespace.yaml
+kubectl apply -f infra/k8s/configmap.yaml
+kubectl apply -f infra/k8s/vault-external-secrets.yaml
+
+# Deploy all services
+# First set your ECR registry and image tag:
+export ECR_REGISTRY=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com
+export IMAGE_TAG=latest
+
+# Build and push images manually for first deploy
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+for svc in catalog-service payment-service order-service api-gateway; do
+  docker build -t $ECR_REGISTRY/acme/$svc:$IMAGE_TAG ./services/$svc
+  docker push $ECR_REGISTRY/acme/$svc:$IMAGE_TAG
+done
+
+# Apply Kubernetes manifests (envsubst fills in ECR_REGISTRY and IMAGE_TAG)
+for f in infra/k8s/*.yaml; do
+  envsubst < $f | kubectl apply -f -
+done
+
+# Check everything is running
+kubectl get pods -n acme-prod
+kubectl get ingress -n acme-prod
+```
+
+---
+
+### Step 6 — Deploy the UI to S3 + CloudFront
+
+```bash
+cd storefront-ui
+npm install
+npm run build
+
+# Sync to S3 (assets cached forever, index.html never cached)
+aws s3 sync dist/ s3://acme-static/ \
+  --delete \
+  --cache-control "public,max-age=31536000,immutable" \
+  --exclude "index.html"
+
+aws s3 cp dist/index.html s3://acme-static/index.html \
+  --cache-control "no-cache,no-store,must-revalidate"
+
+# Bust the CloudFront cache so users get the new version
+aws cloudfront create-invalidation \
+  --distribution-id YOUR_DISTRIBUTION_ID \
+  --paths "/*"
+```
+
+After this, your UI is live at your CloudFront domain (e.g. `https://d1234abcd.cloudfront.net`).
+
+---
+
+### After first deploy — CI/CD takes over
+
+Once the GitHub secrets are set, every push to `main` triggers the pipelines automatically:
 
 ```
-server.js                          Node web/API server (no framework)
-public/                            Browser UI (vanilla HTML/CSS/JS)
-agent/commerce_agent.py            LangGraph agent entry point
-agent/mcp/commerce_mcp_server.py   MCP tools (importable + JSON-RPC entry)
-agent/db.py                        Optional Postgres helpers (cache + persistence)
-data/seed_catalog.json             Last-resort fallback catalog
-db/init/001_schema.sql             Idempotent schema (auto-applied on first DB call)
-kestra/flows/                      Kestra workflow YAML definitions
-docker-compose.yml                 Postgres + Kestra for local optional services
-Dockerfile                         Node + Python image for cloud deploy
-render.yaml                        Render Blueprint (web service, free tier)
-tests/                             Agent contract tests
+Push to main (services/**) →  ci.yml tests → cd-services.yml builds Docker image
+                               → pushes to ECR → kubectl set image → EKS rolls out
+                               → zero-downtime (health check gates the swap)
+
+Push to main (storefront-ui/**) → cd-ui.yml builds React app
+                                 → syncs to S3 → CloudFront invalidation
 ```
 
-## Configuration
+You never need to run `docker push` or `kubectl` manually again after this.
 
-All config is via env vars; copy `.env.example` to `.env` and edit.
+---
 
-| Var | Default | Purpose |
+## What the Kubernetes files actually do
+
+`infra/k8s/` contains one YAML file per service. Each file has three sections:
+
+**Deployment** — tells EKS what to run:
+- Which Docker image to pull from ECR
+- How many copies (`replicas: 2` means 2 containers, spread across different nodes)
+- Health check endpoint — EKS won't send traffic until `/health` returns 200
+- CPU and memory limits — prevents one service from starving others on the same node
+
+**Service** — internal DNS so services can find each other:
+- `catalog-service:8001` resolves to whichever healthy copy of catalog-service is running
+- No service ever hardcodes an IP address
+
+**HorizontalPodAutoscaler** (catalog-service only):
+- Watches CPU usage across all catalog-service copies
+- Automatically adds more copies when CPU exceeds 60%
+- Scales back down when traffic drops
+- Range: 2–8 copies
+
+---
+
+## Configuration reference
+
+Copy `.env.example` to `.env` for local development. In production these come from Vault.
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `PORT` | `3000` | HTTP port |
-| `SHOPIFY_STORE_DOMAIN` | _(unset)_ | If set, the agent calls Shopify Storefront MCP instead of the seed catalog |
-| `DATABASE_URL` | _(unset)_ | Postgres URL. When set: caches Shopify search responses, persists `chat_sessions` / `chat_intents` / `orders`. When unset: all DB ops silently no-op |
-| `CATALOG_CACHE_TTL_SECONDS` | `3600` | How long a Shopify search response stays "fresh" in the cache before triggering a refetch |
-| `KESTRA_URL` | `http://localhost:8080` | Kestra base URL |
-| `KESTRA_NAMESPACE` | `demo.commerce` | Kestra namespace for the demo flows |
-| `KESTRA_FLOW_ID` | `chat-commerce-order-fulfillment` | Post-order flow ID |
-| `KESTRA_RADAR_FLOW_ID` | `campus-demand-radar` | Demand radar flow ID |
+| `SHOPIFY_STORE_DOMAIN` | _(unset)_ | Shopify store domain. When set, catalog uses live MCP search. When unset, uses seed catalog. |
+| `DATABASE_URL` | _(unset)_ | Postgres connection string. When unset, order/intent persistence silently skipped. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis for catalog cache and session storage |
+| `CATALOG_CACHE_TTL_SECONDS` | `3600` | How long Shopify search results stay cached in Redis |
+| `SQS_ORDER_EVENTS_URL` | _(unset)_ | SQS FIFO queue URL. When unset, order events silently skipped. |
+| `AWS_REGION` | `us-east-1` | AWS region for SQS |
+| `KESTRA_URL` | `http://localhost:8080` | Kestra base URL for workflow triggers |
+| `KESTRA_NAMESPACE` | `demo.commerce` | Kestra namespace |
+| `KESTRA_FLOW_ID` | `chat-commerce-order-fulfillment` | Post-order workflow ID |
+| `KESTRA_RADAR_FLOW_ID` | `campus-demand-radar` | Demand radar workflow ID |
+| `CATALOG_SERVICE_URL` | `http://localhost:8001` | Set automatically in Docker Compose and K8s |
+| `PAYMENT_SERVICE_URL` | `http://localhost:8002` | Set automatically in Docker Compose and K8s |
+| `ORDER_SERVICE_URL` | `http://localhost:8003` | Set automatically in Docker Compose and K8s |
+| `VITE_API_GATEWAY_URL` | `http://localhost:8000` | API base URL baked into the React build |
 
-## Deploy
+---
 
-### Render (one-click via Blueprint, free tier)
+## Project structure
 
-1. Push this repo to GitHub.
-2. In Render, **New → Blueprint** and point at the repo. It reads [`render.yaml`](./render.yaml) and provisions a free web service running this Dockerfile.
-3. Wait ~5–8 min for the first build. The service comes up at `https://storefront-concierge.onrender.com` (or your assigned subdomain).
+```
+services/
+  api-gateway/          FastAPI — agent orchestration, session, intent log
+  catalog-service/      FastAPI — Shopify MCP search, Redis cache
+  payment-service/      FastAPI — cart quote, checkout
+  order-service/        FastAPI — orders, SQS publish, Kestra trigger
+storefront-ui/          React + TypeScript + Vite
+infra/
+  k8s/                  Kubernetes manifests (Deployment, Service, HPA, Ingress)
+.github/workflows/
+  ci.yml                Tests on pull request (pytest + tsc)
+  cd-services.yml       Build → ECR → EKS on push to main
+  cd-ui.yml             Build → S3 → CloudFront on push to main
+kestra/flows/           Post-order and demand radar workflow definitions
+db/init/                Postgres schema (auto-applied on first DB connection)
+data/seed_catalog.json  Fallback product catalog (used when Shopify is unreachable)
+docker-compose.yml      Full local stack (all services + postgres + redis + kestra)
+.env.example            Environment variable reference
+```
 
-The blueprint sets `SHOPIFY_STORE_DOMAIN=thekohawkshop.com` so the deployed demo runs in live-Shopify mode out of the box. Override or unset that env var in the Render dashboard to switch to the local catalog.
-
-**Free-tier tradeoff:** the service spins down after 15 minutes of inactivity and cold-starts in ~30s on the next request. Upgrade to Render's `starter` plan ($7/mo) for always-on if you're sharing the demo broadly.
-
-**Postgres is not in the blueprint.** The app does not read from a database today (the schema lives in `db/init/` for when MCP tools start persisting). Render's free Postgres still requires payment info on file, so the blueprint omits it. Add one later from the dashboard if you need it.
-
-**Kestra is also not deployed.** Kestra wants ~2GB RAM and Postgres-backed queues — too much for Render's free or starter tier. Run it locally with `docker compose up kestra` to demo the workflow trigger end-to-end. The deployed app degrades cleanly to "Kestra workflow ready but not running" when Kestra is unreachable.
-
-### Railway / Fly.io / any Docker host
-
-The Dockerfile is platform-agnostic. Set `PORT` and (optionally) `SHOPIFY_STORE_DOMAIN`, and you're good.
-
-## Where to extend
-
-- Swap the deterministic intent classifier in `commerce_agent.py` for an LLM planner.
-- Persist Shopify cart IDs across chat turns so cart state survives reloads.
-- Promote the per-query cache to per-product (cache by SKU/variant ID with a separate query→IDs index) for higher reuse.
-- Add identity, promotions, returns, recommendations, and payment-provider mocks.
-- Generalize the radar beyond campus — events + weather + intent works for any geo-bound retailer.
+---
 
 ## License
 
